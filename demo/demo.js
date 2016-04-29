@@ -171,6 +171,18 @@
 
 				return res;
 			}
+
+			/*
+	  chain( cmd ){
+	  	var e = this.eval.bind(this);
+	  		function temp( cmd ){
+	  		e( [cmd], true );
+	  		return temp;
+	  	}
+	  		return temp(cmd);
+	  }
+	  */
+
 		}, {
 			key: 'eval',
 			value: function _eval(actions, keepBuffer) {
@@ -205,7 +217,7 @@
 					console.log('failed eval:', ex);
 				}
 
-				return Promise.resolve(res);
+				return Promise.resolve(this.buffer);
 			}
 		}]);
 

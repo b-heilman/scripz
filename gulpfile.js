@@ -1,11 +1,13 @@
-var gulp = require('gulp'),
-	$ = require('gulp-load-plugins')(),
+var $ = require('gulp-load-plugins')(),
+	gulp = require('gulp'),
 	map = require('map-stream'),
 	webpack = require('gulp-webpack'),
 	karma = require('gulp-karma'),
 	jshint = require('gulp-jshint'),
-	stylish = require('jshint-stylish'),
-	config = require('./config/env.js');
+	stylish = require('jshint-stylish');
+
+
+var config = require('./config/env.js');
 
 gulp.task('demo', function() {
 	return gulp.src(config.jsSrc)
