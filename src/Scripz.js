@@ -20,7 +20,7 @@ export default class Scripz {
 
 		actions.load = function( cmd ){
 			return memory[cmd.from];
-		}
+		};
 
 		this.getActions = function(){
 			return actions;
@@ -50,20 +50,21 @@ export default class Scripz {
 
 		this.buffer = keepBuffer ? this.buffer : null;
 
+		function success( rtn ){
+			dis.buffer = rtn;
+			return dis.eval( actions, true );
+		}
+
+		function failure( error ){
+			console.log( error );
+		}
+
 		try{
 			while( res === undefined && actions.length ){
 				res = this.run( actions.shift(), this.buffer );
 
 				if ( res.then ){ // ok, a promise
-					return res.then(
-						function( rtn ){
-							dis.buffer = rtn;
-							return dis.eval( actions, true );
-						},
-						function( error ){
-							console.log( error );
-						}
-					);
+					return res.then( success, failure );
 				}else{ // ok, linear
 					this.buffer = res;
 					res = undefined;

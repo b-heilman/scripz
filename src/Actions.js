@@ -71,13 +71,12 @@ export function navigate( cmd, content ){
 
 		makeCall();
 	});
-};
+}
 
 export function series( cmd, content, scripz ){
 	return new Promise(function( resolve ){
 		var i = 0, c = content.length,
-			t, 
-			res = [];
+			t;
 
 		function run(){
 			if ( i < c ){
@@ -98,6 +97,10 @@ export function series( cmd, content, scripz ){
 
 		run();
 	});
+}
+
+export function insert( cmd ){
+	return cmd.content;
 }
 
 export function value( cmd, content ){

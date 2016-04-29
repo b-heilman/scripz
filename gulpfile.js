@@ -1,7 +1,10 @@
 var gulp = require('gulp'),
+	$ = require('gulp-load-plugins')(),
+	map = require('map-stream'),
 	webpack = require('gulp-webpack'),
 	karma = require('gulp-karma'),
-	$ = require('gulp-load-plugins')(),
+	jshint = require('gulp-jshint'),
+	stylish = require('jshint-stylish'),
 	config = require('./config/env.js');
 
 gulp.task('demo', function() {
@@ -49,20 +52,46 @@ gulp.task('library', function() {
 		.pipe(gulp.dest(config.distDir));
 });
 
-gulp.task('build', ['demo','library'] );
-
 gulp.task('test', ['build'], function() {
-		return gulp.src('aaa')
-				.pipe(karma({
-						configFile: './karma.conf.js',
-						action: 'run'
-				}))
-				.on('error', function(err) {
-						throw err;
-				});
+	return gulp.src('aaa')
+			.pipe(karma({
+					configFile: './karma.conf.js',
+					action: 'run'
+			}))
+			.on('error', function(err) {
+					throw err;
+			});
 });
 
-gulp.task('serve', ['build'], function() {
+var failOnError = function() {
+    return map(function(file, cb) {
+        if (!file.jshint.success) {
+            process.exit(1);
+        }
+        cb(null, file);
+    });
+};
+
+gulp.task('build-lint', function() {
+    gulp.src( config.jsSrc )
+        .pipe( jshint() )
+        .pipe( jshint.reporter(stylish) )
+        .pipe( failOnError() );
+});
+
+gulp.task('lint', function() {
+    gulp.src( config.jsSrc )
+        .pipe( jshint() )
+        .pipe( jshint.reporter(stylish) );
+});
+
+gulp.task('build', ['build-lint', 'demo','library'] );
+
+gulp.task('watch', ['build'], function(){
+	gulp.watch(config.jsSrc, ['lint', 'demo','library']);
+});
+
+gulp.task('serve', ['watch'], function() {
 	gulp.src(config.demoDir)
 		.pipe($.webserver({
 			port: 8000,
