@@ -1,4 +1,4 @@
-var triggerEvent = require('./dom/Trigger.js'),
+var bmoor = require('bmoor'),
 	Promise = require('es6-promise').Promise;
 
 export function select( cmd, content ){
@@ -16,28 +16,29 @@ export function select( cmd, content ){
 	return res;
 }
 
-export function click( cmd, content ){
+export function event( cmd, content ){
 	content.forEach(function( element ){
-		triggerEvent( element, 'click' );
+		bmoor.dom.triggerEvent( element, cmd.eventType );
 	});
 
 	return content;
 }
 
-export function highlightOn( cmd, content ){
-	content.forEach(function( element ){
-		element.$className = element.className;
-		element.className += cmd.className||'highlight';
+export function addClass( cmd, content ){
+	cmd.className.split(' ').forEach(function( className ){
+		content.forEach(function( element ){
+			bmoor.dom.addClass( element, className );
+		});
 	});
-
+	
 	return content;
 }
 
-export function highlightOff( cmd, content ){
-	content.forEach(function( element ){
-		if ( '$className' in element ){
-			element.className = element.$className || '';
-		}
+export function removeClass( cmd, content ){
+	cmd.className.split(' ').forEach(function( className ){
+		content.forEach(function( element ){
+			bmoor.dom.removeClass( element, className );
+		});
 	});
 
 	return content;

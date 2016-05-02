@@ -6,13 +6,12 @@ var $ = require('gulp-load-plugins')(),
 	jshint = require('gulp-jshint'),
 	stylish = require('jshint-stylish');
 
-
-var config = require('./config/env.js');
+var env = require('./config/env.js');
 
 gulp.task('demo', function() {
-	return gulp.src(config.jsSrc)
+	return gulp.src(env.jsSrc)
 		.pipe(webpack({
-			entry: './'+config.demoConfig,
+			entry: './'+env.demoConfig,
 			module: {
 				loaders: [{
 					test: /\.js$/,
@@ -26,13 +25,13 @@ gulp.task('demo', function() {
 				filename: 'demo.js'
 			}
 		}))
-		.pipe(gulp.dest(config.demoDir));
+		.pipe(gulp.dest(env.demoDir));
 });
 
 gulp.task('library', function() {
-	return gulp.src(config.jsDemo)
+	return gulp.src(env.jsDemo)
 		.pipe(webpack({
-			entry: './'+config.libraryConfig,
+			entry: './'+env.libraryConfig,
 			module: {
 				loaders: [{
 					test: /\.js$/,
@@ -43,21 +42,19 @@ gulp.task('library', function() {
 				}],
 			},
 			output: {
-				filename: 'Scripz.js',
-				library: "Scripz",
+				filename: env.name+'.js',
+				library: env.library,
 				libraryTarget: "var"
 			},
-			externals: {
-				"es6-promise": "ES6Promise"
-			}
+			externals: env.externals
 		}))
-		.pipe(gulp.dest(config.distDir));
+		.pipe(gulp.dest(env.distDir));
 });
 
 gulp.task('test', ['build'], function() {
 	return gulp.src('aaa')
 			.pipe(karma({
-					configFile: './karma.conf.js',
+					configFile: env.karmaConfig,
 					action: 'run'
 			}))
 			.on('error', function(err) {
@@ -75,14 +72,14 @@ var failOnError = function() {
 };
 
 gulp.task('build-lint', function() {
-    gulp.src( config.jsSrc )
+    gulp.src( env.jsSrc )
         .pipe( jshint() )
         .pipe( jshint.reporter(stylish) )
         .pipe( failOnError() );
 });
 
 gulp.task('lint', function() {
-    gulp.src( config.jsSrc )
+    gulp.src( env.jsSrc )
         .pipe( jshint() )
         .pipe( jshint.reporter(stylish) );
 });
@@ -90,11 +87,11 @@ gulp.task('lint', function() {
 gulp.task('build', ['build-lint', 'demo','library'] );
 
 gulp.task('watch', ['build'], function(){
-	gulp.watch(config.jsSrc, ['lint', 'demo','library']);
+	gulp.watch(env.jsSrc, ['lint', 'demo','library']);
 });
 
 gulp.task('serve', ['watch'], function() {
-	gulp.src(config.demoDir)
+	gulp.src(env.demoDir)
 		.pipe($.webserver({
 			port: 8000,
 			host: 'localhost',

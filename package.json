@@ -1,6 +1,6 @@
 {
   "name": "scripz",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "descritpion": "A way to run json encoded scripts",
   "license": "MIT",
   "repository": {

@@ -47,11 +47,16 @@ sc.eval([{
 		action: 'log',
 		label: 'highlight'
 	},{
-		action: 'highlightOn'
+		action: 'addClass',
+		className: 'highlight'
 	},{
 		action: 'sleep',
 		wait: 1000
 	},{
-		action: 'highlightOff'
+		action: 'removeClass',
+		className: 'highlight'
+	},{
+		action: 'event',
+		eventType: 'click'
 	}]
 }]);
