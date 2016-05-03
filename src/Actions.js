@@ -50,15 +50,85 @@ export function sleep( cmd, content ){
 	});
 }
 
+function doVariable( lines ){
+	var t,
+		getter,
+		line,
+		dex,
+		fn;
+
+	if ( !lines.length ){
+		return function(){
+			return '';
+		};
+	}else{
+		line = lines.shift();
+		dex = line.indexOf('}}');
+		fn = doVariable(lines);
+
+		if ( dex === -1 ){
+			return function(){
+				return '--no close--';
+			};
+		}else if ( dex === 0 ){
+			return function( obj ){
+				return obj+fn(obj);
+			};
+		}else{
+			t = line.substr(0,dex);
+			getter = bmoor.makeGetter(t);
+			line = line.substr(dex+2);
+			return function( obj ){
+				return getter(obj)+line+fn(obj);
+			};
+		}
+	}
+}
+
+function getFormatter( str ){
+	var fn,
+		lines = str.split(/{{/g);
+
+	if ( lines.length > 1 ){
+		str = lines.shift();
+		fn = doVariable( lines );
+
+		return function( obj ){
+			return str + fn( obj );
+		};
+	}else{
+		return function(){
+			return str;
+		};
+	}
+}
+
+export function log( cmd, content ){
+	var fn;
+
+	if ( cmd.content ){
+		fn = getFormatter(cmd.content);
+
+		content.forEach(function( c ){
+			console.log( cmd.label, fn(c) );
+		});
+	}else{
+		console.log( cmd.label, content );
+	}
+
+	return content;
+}
+
 export function navigate( cmd, content ){
 	return new Promise(function( resolve ){
-		var i = 0;
+		var i = 0,
+			formatter = getFormatter(cmd.hash);
 		
 		function makeCall(){
 			if ( i === content.length ){
 				resolve( content );
 			}else{
-				window.location.hash = cmd.hash.replace(/@1/g,content[i]);
+				window.location.hash = formatter(content[i]);
 
 				i++;
 
@@ -124,8 +194,71 @@ export function value( cmd, content ){
 	return res;
 }
 
-export function log( cmd, content ){
-	console.log( cmd.label, content );
+export function run( cmd, collection ){
+    var res = [];
 
-	return content;
+    collection.forEach(function( datum ){
+        res.push(datum[cmd.method]());
+    });
+
+    return Promise.all(res);
+}
+
+export function filter( cmd, collection ){
+	var fn = bmoor.makeGetter(cmd.field);
+
+    return collection.filter(function( datum ){
+        return fn(datum);
+    });
+}
+
+export function sort( cmd, collection ){
+	var fn = bmoor.makeGetter(cmd.field);
+
+    return collection.sort(function( a, b ){
+        return fn(a) - fn(b);
+    });
+}
+
+export function permutate( cmd, collection ){
+	var fns = {},
+		res = [];
+
+	Object.keys(cmd).forEach(function( key ){
+		if ( key !== 'action' ){
+			fns[key] = bmoor.makeLoader( cmd[key] );
+		}
+	});
+
+	collection.forEach(function( datum ){
+		var child = [];
+
+		Object.keys(fns).forEach(function( key ){
+			var t = [],
+				fn = fns[key],
+				values = fn( datum );
+
+			if ( child.length ){
+				child.forEach(function( p ){
+					values.forEach(function( v ){
+						var proto = Object.create(p);
+						proto[key] = v;
+						t.push( proto );
+					});
+				});
+			}else{
+				values.forEach(function( v ){
+					var proto = {};
+					proto[key] = v;
+					t.push( proto );
+				});
+			}
+
+			child = t;
+		});
+
+		res = res.concat( child );
+	});
+
+	return res;
 }

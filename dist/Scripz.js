@@ -198,11 +198,15 @@ var Scripz =
 	exports.addClass = addClass;
 	exports.removeClass = removeClass;
 	exports.sleep = sleep;
+	exports.log = log;
 	exports.navigate = navigate;
 	exports.series = series;
 	exports.insert = insert;
 	exports.value = value;
-	exports.log = log;
+	exports.run = run;
+	exports.filter = filter;
+	exports.sort = sort;
+	exports.permutate = permutate;
 	var bmoor = __webpack_require__(3),
 	    Promise = __webpack_require__(14).Promise;
 
@@ -257,15 +261,81 @@ var Scripz =
 		});
 	}
 
+	function doVariable(lines) {
+		var t, getter, line, dex, fn;
+
+		if (!lines.length) {
+			return function () {
+				return '';
+			};
+		} else {
+			line = lines.shift();
+			dex = line.indexOf('}}');
+			fn = doVariable(lines);
+
+			if (dex === -1) {
+				return function () {
+					return '--no close--';
+				};
+			} else if (dex === 0) {
+				return function (obj) {
+					return obj + fn(obj);
+				};
+			} else {
+				t = line.substr(0, dex);
+				getter = bmoor.makeGetter(t);
+				line = line.substr(dex + 2);
+				return function (obj) {
+					return getter(obj) + line + fn(obj);
+				};
+			}
+		}
+	}
+
+	function getFormatter(str) {
+		var fn,
+		    lines = str.split(/{{/g);
+
+		if (lines.length > 1) {
+			str = lines.shift();
+			fn = doVariable(lines);
+
+			return function (obj) {
+				return str + fn(obj);
+			};
+		} else {
+			return function () {
+				return str;
+			};
+		}
+	}
+
+	function log(cmd, content) {
+		var fn;
+
+		if (cmd.content) {
+			fn = getFormatter(cmd.content);
+
+			content.forEach(function (c) {
+				console.log(cmd.label, fn(c));
+			});
+		} else {
+			console.log(cmd.label, content);
+		}
+
+		return content;
+	}
+
 	function navigate(cmd, content) {
 		return new Promise(function (resolve) {
-			var i = 0;
+			var i = 0,
+			    formatter = getFormatter(cmd.hash);
 
 			function makeCall() {
 				if (i === content.length) {
 					resolve(content);
 				} else {
-					window.location.hash = cmd.hash.replace(/@1/g, content[i]);
+					window.location.hash = formatter(content[i]);
 
 					i++;
 
@@ -333,10 +403,73 @@ var Scripz =
 		return res;
 	}
 
-	function log(cmd, content) {
-		console.log(cmd.label, content);
+	function run(cmd, collection) {
+		var res = [];
 
-		return content;
+		collection.forEach(function (datum) {
+			res.push(datum[cmd.method]());
+		});
+
+		return Promise.all(res);
+	}
+
+	function filter(cmd, collection) {
+		var fn = bmoor.makeGetter(cmd.field);
+
+		return collection.filter(function (datum) {
+			return fn(datum);
+		});
+	}
+
+	function sort(cmd, collection) {
+		var fn = bmoor.makeGetter(cmd.field);
+
+		return collection.sort(function (a, b) {
+			return fn(a) - fn(b);
+		});
+	}
+
+	function permutate(cmd, collection) {
+		var fns = {},
+		    res = [];
+
+		Object.keys(cmd).forEach(function (key) {
+			if (key !== 'action') {
+				fns[key] = bmoor.makeLoader(cmd[key]);
+			}
+		});
+
+		collection.forEach(function (datum) {
+			var child = [];
+
+			Object.keys(fns).forEach(function (key) {
+				var t = [],
+				    fn = fns[key],
+				    values = fn(datum);
+
+				if (child.length) {
+					child.forEach(function (p) {
+						values.forEach(function (v) {
+							var proto = Object.create(p);
+							proto[key] = v;
+							t.push(proto);
+						});
+					});
+				} else {
+					values.forEach(function (v) {
+						var proto = {};
+						proto[key] = v;
+						t.push(proto);
+					});
+				}
+
+				child = t;
+			});
+
+			res = res.concat(child);
+		});
+
+		return res;
 	}
 
 /***/ },
@@ -382,6 +515,8 @@ var Scripz =
 	exports.makeSetter = makeSetter;
 	exports.get = get;
 	exports.makeGetter = makeGetter;
+	exports.load = load;
+	exports.makeLoader = makeLoader;
 	exports.del = del;
 	exports.loop = loop;
 	exports.each = each;
@@ -556,17 +691,19 @@ var Scripz =
 	 * @return {something}
 	 **/
 	function set(root, space, value) {
-		var old,
+		var i,
+		    c,
+		    old,
 		    val,
 		    nextSpace,
 		    curSpace = root;
 
-		if (space && (isString(space) || isArrayLike(space))) {
-			space = parse(space);
+		if (isString(space)) {
+			space = space.split('.');
 
 			val = space.pop();
 
-			for (var i = 0; i < space.length; i++) {
+			for (i = 0, c = space.length; i < c; i++) {
 				nextSpace = space[i];
 
 				if (isUndefined(curSpace[nextSpace])) {
@@ -606,7 +743,7 @@ var Scripz =
 	function makeSetter(space) {
 		var i,
 		    fn,
-		    readings = parse(space);
+		    readings = space.split('.');
 
 		for (i = readings.length - 1; i > -1; i--) {
 			fn = _makeSetter(readings[i], fn);
@@ -625,43 +762,45 @@ var Scripz =
 	 * @return {array}
 	 **/
 	function get(root, space) {
-		var curSpace = root,
+		var i,
+		    c,
+		    curSpace = root,
 		    nextSpace;
 
-		if (space && (isString(space) || isArrayLike(space))) {
-			space = parse(space);
+		if (isString(space)) {
+			if (space.length) {
+				space = space.split('.');
 
-			for (var i = 0; i < space.length; i++) {
-				nextSpace = space[i];
+				for (i = 0, c = space.length; i < c; i++) {
+					nextSpace = space[i];
 
-				if (isUndefined(curSpace[nextSpace])) {
-					return;
+					if (isUndefined(curSpace[nextSpace])) {
+						return;
+					}
+
+					curSpace = curSpace[nextSpace];
 				}
-
-				curSpace = curSpace[nextSpace];
 			}
 
 			return curSpace;
-		} else if (isObject(space)) {
-			return space;
 		} else {
-			throw new Error('unsupported type');
+			throw new Error('unsupported type: ' + space);
 		}
 	}
 
 	function _makeGetter(property, next) {
 		if (next) {
-			return function (ctx) {
+			return function (obj) {
 				try {
-					return next(ctx[property]);
+					return next(obj[property]);
 				} catch (ex) {
 					return undefined;
 				}
 			};
 		} else {
-			return function (ctx) {
+			return function (obj) {
 				try {
-					return ctx[property];
+					return obj[property];
 				} catch (ex) {
 					return undefined;
 				}
@@ -670,15 +809,69 @@ var Scripz =
 	}
 
 	function makeGetter(space) {
-		var i,
-		    fn,
-		    readings = parse(space);
+		var i, fn;
 
-		for (i = readings.length - 1; i > -1; i--) {
-			fn = _makeGetter(readings[i], fn);
+		if (space.length) {
+			space = space.split('.');
+
+			for (i = space.length - 1; i > -1; i--) {
+				fn = _makeGetter(space[i], fn);
+			}
+		} else {
+			return function (obj) {
+				return obj;
+			};
 		}
 
 		return fn;
+	}
+
+	function load(root, space) {
+		var i, c, arr, res;
+
+		space = space.split('[]');
+		if (space.length === 1) {
+			return [get(root, space[0])];
+		} else {
+			arr = get(root, space[0]);
+			res = [];
+
+			if (arr) {
+				for (i = 0, c = arr.length; i < c; i++) {
+					res.push(get(arr[i], space[1]));
+				}
+			}
+
+			return res;
+		}
+	}
+
+	function makeLoader(space) {
+		var getArray, getVariable;
+
+		space = space.split('[]');
+
+		if (space.length === 1) {
+			return [makeGetter(space[0])];
+		} else {
+			getArray = makeGetter(space[0]);
+			getVariable = makeGetter(space[1]);
+
+			return function (obj) {
+				var i,
+				    c,
+				    arr = getArray(obj),
+				    res = [];
+
+				if (arr) {
+					for (i = 0, c = arr.length; i < c; i++) {
+						res.push(getVariable(arr[i]));
+					}
+				}
+
+				return res;
+			};
+		}
 	}
 
 	/**
