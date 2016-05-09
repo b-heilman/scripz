@@ -4,7 +4,7 @@ var bmoor = require('bmoor'),
 export function select( cmd, content ){
 	var res;
 
-	if ( content ){
+	if ( content && content.length ){
 		res = [];
 		content.forEach(function( element ){
 			res = res.merge( element.querySelectorAll(cmd.selector) );
@@ -144,32 +144,6 @@ export function navigate( cmd, content ){
 	});
 }
 
-export function series( cmd, content, scripz ){
-	return new Promise(function( resolve ){
-		var i = 0, c = content.length,
-			t;
-
-		function run(){
-			if ( i < c ){
-				scripz.buffer = [ content[i] ];
-				t = scripz.eval( cmd.actions.slice(0), true );
-
-				i++;
-
-				if ( t.then ){
-					t.then(run);
-				}else{
-					run();
-				}
-			}else{
-				resolve( content );
-			}
-		}
-
-		run();
-	});
-}
-
 export function insert( cmd ){
 	return cmd.content;
 }
@@ -216,8 +190,28 @@ export function sort( cmd, collection ){
 	var fn = bmoor.makeGetter(cmd.field);
 
     return collection.sort(function( a, b ){
-        return fn(a) - fn(b);
+        a = fn(a);
+        b = fn(b);
+
+        if ( a < b ){
+        	return -1;
+        }else if ( a > b ){
+        	return 1;
+        }else{
+        	return 0;
+        }
     });
+}
+
+export function limit( cmd, content ){
+    var start = parseInt(cmd.start,10),
+        limit = parseInt(cmd.limit,10);
+
+    if ( start ){
+        return content.slice( start, start+limit );
+    }else{
+        return content.slice( 0, limit );
+    }
 }
 
 export function permutate( cmd, collection ){

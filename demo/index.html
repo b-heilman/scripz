@@ -18,11 +18,17 @@ li.highlight {
 </select>
 
 <ol>
-	<li onclick="console.log('click',this.innerHTML)">one</li>
-	<li onclick="console.log('click',this.innerHTML)">two</li>
+	<li onclick="console.log('click',this.innerHTML);">one</li>
+	<li onclick="console.log('click',this.innerHTML);this.style.backgroundColor='red';">two</li>
 	<li>three</li>
-	<li onclick="console.log('click',this.innerHTML)">four</li>
+	<li>four</li>
 </ol>
+
+<div>
+	<button onclick="pause()">Pause ||</button>
+	<button onclick="resume()">Resume &gt;&gt;</button>
+	<button onclick="kill()">Stop []</button>
+</div>
 
 <script src="demo.js"></script>
 

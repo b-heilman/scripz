@@ -1,0 +1,2 @@
+- Create way to kill, pause, resume, step through a running script
+- Allow subscripting via name

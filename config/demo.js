@@ -1,5 +1,18 @@
 var Scripz = require('../src/Scripz.js').default,
-	sc = new Scripz();
+	subs = {},
+	sc = new Scripz( subs );
+
+var resume;
+
+window.resume = function(){
+	resume();
+};
+window.pause = function(){
+	resume = sc.pause();
+};
+window.kill = function(){
+	sc.kill();
+};
 
 sc.eval([{
 	action: 'select',
@@ -27,22 +40,8 @@ sc.eval([{
 }]);
 
 sc.eval([{
-	action: 'select',
-	selector: 'li'
-},{
-	action: 'save',
-	as: 'memory'
-},{
-	action: 'value',
-	field: 'innerHTML'
-},{
-	action: 'log',
-	label: 'lis'
-},{
-	action: 'load',
-	from: 'memory'
-},{
 	action: 'series',
+	name: 'subloop',
 	actions: [{
 		action: 'log',
 		label: 'highlight'
@@ -59,6 +58,29 @@ sc.eval([{
 		action: 'event',
 		eventType: 'click'
 	}]
+},{
+	action: 'select',
+	selector: 'li'
+},{
+	action: 'save',
+	as: 'memory'
+},{
+	action: 'value',
+	field: 'innerHTML'
+},{
+	action: 'log',
+	label: 'lis'
+},{
+	action: 'load',
+	from: 'memory'
+},{
+	action: 'log',
+	label: 'memorized'
+},{
+	action: 'loop',
+	name: 'subloop',
+	wait: 4000,
+	limit: 5
 }]);
 
 sc.eval([{
@@ -82,3 +104,47 @@ sc.eval([{
 	action: 'navigate',
 	hash: 'permu/{{field1}}/{{field2}}'
 }]);
+
+
+sc.eval([{
+	action: 'insert',
+	content: [
+		{ a:3 },
+		{ a:1 },
+		{ a:2 }
+	]
+},{
+	action: 'sort', field:'a'
+},{
+	action: 'log', label:'numeric sort'
+}]);
+
+sc.eval([{
+	action: 'insert',
+	content: [
+		{ a:'z3' },
+		{ a:'a1' },
+		{ a:'m2' }
+	]
+},{
+	action: 'sort', field:'a'
+},{
+	action: 'log', label: 'alpha sort'
+}]);
+
+subs.partSort = [{
+	action: 'insert',
+	content: [
+		{ a:{b:'z3'} },
+		{ a:{b:'a1'} },
+		{ a:{b:'m2'} }
+	]
+},{
+	action: 'sort', field:'a.b'
+},{
+	action: 'log', label:'part sort'
+}];
+
+sc.eval([
+	{ action: 'series', name: 'partSort' }
+]);

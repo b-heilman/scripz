@@ -85,17 +85,13 @@ var Scripz =
 	var Promise = __webpack_require__(14).Promise;
 
 	var Scripz = function () {
-		function Scripz(base) {
+		function Scripz(subs) {
 			_classCallCheck(this, Scripz);
 
-			var memory = {},
-			    actions;
-
-			if (base instanceof Scripz) {
-				base = base.getActions();
-			}
-
-			actions = Object.create(base || baseActions);
+			var dis = this,
+			    memory = {},
+			    series = subs ? Object.create(subs) : {},
+			    actions = Object.create(baseActions);
 
 			actions.save = function (cmd, buffer) {
 				memory[cmd.as] = buffer;
@@ -106,76 +102,164 @@ var Scripz =
 				return memory[cmd.from];
 			};
 
-			this.getActions = function () {
-				return actions;
+			actions.series = function (cmd, content) {
+				return new Promise(function (resolve) {
+					var t,
+					    i = 0,
+					    c = content.length;
+
+					function run() {
+						if (i < c) {
+							if (cmd.actions) {
+								t = dis.eval(cmd.actions.slice(0), [content[i]]);
+							} else {
+								t = dis.eval(series[cmd.name].slice(0), [content[i]]);
+							}
+
+							i++;
+
+							if (t.then) {
+								t.then(run);
+							} else {
+								run();
+							}
+						} else {
+							resolve(content);
+						}
+					}
+
+					if (cmd.actions && cmd.name) {
+						series[cmd.name] = cmd.actions;
+						resolve(content);
+					} else {
+						run();
+					}
+				});
+			};
+
+			actions.loop = function (cmd, content) {
+				return new Promise(function (resolve) {
+					var i = -1;
+
+					function run() {
+						i++;
+
+						if (i < cmd.limit) {
+							return actions.series(cmd, content).then(function () {
+								if (cmd.wait) {
+									setTimeout(run, cmd.wait);
+								} else {
+									run();
+								}
+							});
+						} else {
+							resolve(content);
+						}
+					}
+
+					run();
+				});
+			};
+
+			this.addAction = function (name, action) {
+				actions[name] = action;
+			};
+
+			this.run = function (cmd, content) {
+				var action = actions[cmd.action];
+
+				if (action) {
+					return action(cmd, content, this);
+				} else {
+					throw new Error('Could not find action:' + cmd.action);
+				}
+			};
+
+			this.kill = function () {
+				this._priority = function () {
+					throw new Error('ending series');
+				};
+			};
+
+			var unpause;
+			this.pause = function () {
+				var waiting = new Promise(function (resolve) {
+					unpause = resolve;
+				});
+
+				this._priority = function () {
+					return waiting;
+				};
+
+				return function resume() {
+					dis._priority = null;
+					if (unpause) {
+						unpause();
+					}
+				};
 			};
 		}
 
+		/*
+	 chain( cmd ){
+	 	var e = this.eval.bind(this);
+	 		function temp( cmd ){
+	 		e( [cmd], true );
+	 		return temp;
+	 	}
+	 		return temp(cmd);
+	 }
+	 */
+
 		_createClass(Scripz, [{
-			key: 'run',
-			value: function run(cmd, content) {
-				var res,
-				    action = this.getActions()[cmd.action];
-
-				if (action) {
-					res = action(cmd, content, this);
-					if (cmd.clean) {
-						res = content;
-					}
-				} else {
-					console.log('Could not find action:' + cmd.action);
-					// how to fail
-				}
-
-				return res;
-			}
-
-			/*
-	  chain( cmd ){
-	  	var e = this.eval.bind(this);
-	  		function temp( cmd ){
-	  		e( [cmd], true );
-	  		return temp;
-	  	}
-	  		return temp(cmd);
-	  }
-	  */
-
-		}, {
 			key: 'eval',
-			value: function _eval(actions, keepBuffer) {
+			value: function _eval(actionPath, buffer) {
 				var res,
 				    dis = this;
 
-				this.buffer = keepBuffer ? this.buffer : null;
+				if (!buffer) {
+					buffer = [];
+				}
 
 				function success(rtn) {
-					dis.buffer = rtn;
-					return dis.eval(actions, true);
+					if (rtn) {
+						buffer = rtn;
+					}
+					return dis.eval(actionPath, buffer);
 				}
 
 				function failure(error) {
 					console.log(error);
+
+					while (actionPath.length) {
+						actionPath.pop();
+					}
+
+					return Promise.reject(error);
 				}
 
 				try {
-					while (res === undefined && actions.length) {
-						res = this.run(actions.shift(), this.buffer);
+					while (res === undefined && actionPath.length) {
+						if (this._priority) {
+							res = this._priority();
+						} else {
+							res = this.run(actionPath.shift(), buffer);
+						}
 
 						if (res.then) {
 							// ok, a promise
 							return res.then(success, failure);
 						} else {
 							// ok, linear
-							this.buffer = res;
+							buffer = res;
 							res = undefined;
 						}
 					}
 				} catch (ex) {
-					console.log('failed eval:', ex);
+					return failure(ex);
 				}
 
-				return Promise.resolve(this.buffer);
+				return Promise.resolve(buffer);
 			}
 		}]);
 
@@ -200,12 +284,12 @@ var Scripz =
 	exports.sleep = sleep;
 	exports.log = log;
 	exports.navigate = navigate;
-	exports.series = series;
 	exports.insert = insert;
 	exports.value = value;
 	exports.run = run;
 	exports.filter = filter;
 	exports.sort = sort;
+	exports.limit = limit;
 	exports.permutate = permutate;
 	var bmoor = __webpack_require__(3),
 	    Promise = __webpack_require__(14).Promise;
@@ -213,7 +297,7 @@ var Scripz =
 	function select(cmd, content) {
 		var res;
 
-		if (content) {
+		if (content && content.length) {
 			res = [];
 			content.forEach(function (element) {
 				res = res.merge(element.querySelectorAll(cmd.selector));
@@ -351,33 +435,6 @@ var Scripz =
 		});
 	}
 
-	function series(cmd, content, scripz) {
-		return new Promise(function (resolve) {
-			var i = 0,
-			    c = content.length,
-			    t;
-
-			function run() {
-				if (i < c) {
-					scripz.buffer = [content[i]];
-					t = scripz.eval(cmd.actions.slice(0), true);
-
-					i++;
-
-					if (t.then) {
-						t.then(run);
-					} else {
-						run();
-					}
-				} else {
-					resolve(content);
-				}
-			}
-
-			run();
-		});
-	}
-
 	function insert(cmd) {
 		return cmd.content;
 	}
@@ -425,8 +482,28 @@ var Scripz =
 		var fn = bmoor.makeGetter(cmd.field);
 
 		return collection.sort(function (a, b) {
-			return fn(a) - fn(b);
+			a = fn(a);
+			b = fn(b);
+
+			if (a < b) {
+				return -1;
+			} else if (a > b) {
+				return 1;
+			} else {
+				return 0;
+			}
 		});
+	}
+
+	function limit(cmd, content) {
+		var start = parseInt(cmd.start, 10),
+		    limit = parseInt(cmd.limit, 10);
+
+		if (start) {
+			return content.slice(start, start + limit);
+		} else {
+			return content.slice(0, limit);
+		}
 	}
 
 	function permutate(cmd, collection) {
