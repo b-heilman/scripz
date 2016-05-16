@@ -5,7 +5,7 @@
 module.exports = function(config) {
     config.set({
         // base path, that will be used to resolve files and exclude
-        basePath: '',
+        basePath: '../',
 
         // testing framework to use (jasmine/mocha/qunit/...)
         frameworks: ['jasmine'],
@@ -13,7 +13,8 @@ module.exports = function(config) {
         // list of files / patterns to load in the browser
         files: [
             'node_modules/es6-promise/dist/es6-promise.js',
-            'dist/Scripz.js',
+            'node_modules/bmoor/dist/bmoor.js',
+            'dist/scripz.js',
             //------------
             'test/lib/**.js',
             'test/mock/**/*.js',

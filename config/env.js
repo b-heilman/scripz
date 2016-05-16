@@ -12,7 +12,8 @@ var fs = require('fs'),
 		configDir: 'config/',
 		jsSrc: ['src/*.js','src/**/*.js'],
 		externals: {
-			"es6-promise": "ES6Promise"
+			"es6-promise": "ES6Promise",
+			"bmoor": "bmoor"
 		}
 	};
 

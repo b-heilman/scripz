@@ -1,258 +1,112 @@
 var bmoor = require('bmoor'),
 	Promise = require('es6-promise').Promise;
 
-export function select( cmd, content ){
-	var res;
+// factory accepts cmd, args, config
+export var event = {
+	factory: function( cmd, args ){
+		var element = args[0]||cmd.element,
+			eventType = args[1]||cmd.eventType;
 
-	if ( content && content.length ){
-		res = [];
-		content.forEach(function( element ){
-			res = res.merge( element.querySelectorAll(cmd.selector) );
-		});
-	}else{
-		res = document.querySelectorAll( cmd.selector );
-	}
-
-	return res;
-}
-
-export function event( cmd, content ){
-	content.forEach(function( element ){
-		bmoor.dom.triggerEvent( element, cmd.eventType );
-	});
-
-	return content;
-}
-
-export function addClass( cmd, content ){
-	cmd.className.split(' ').forEach(function( className ){
-		content.forEach(function( element ){
-			bmoor.dom.addClass( element, className );
-		});
-	});
-	
-	return content;
-}
-
-export function removeClass( cmd, content ){
-	cmd.className.split(' ').forEach(function( className ){
-		content.forEach(function( element ){
-			bmoor.dom.removeClass( element, className );
-		});
-	});
-
-	return content;
-}
-
-export function sleep( cmd, content ){
-	return new Promise(function( resolve ){
-		setTimeout( function(){ resolve(content); }, cmd.wait );
-	});
-}
-
-function doVariable( lines ){
-	var t,
-		getter,
-		line,
-		dex,
-		fn;
-
-	if ( !lines.length ){
-		return function(){
-			return '';
-		};
-	}else{
-		line = lines.shift();
-		dex = line.indexOf('}}');
-		fn = doVariable(lines);
-
-		if ( dex === -1 ){
-			return function(){
-				return '--no close--';
-			};
-		}else if ( dex === 0 ){
-			return function( obj ){
-				return obj+fn(obj);
-			};
-		}else{
-			t = line.substr(0,dex);
-			getter = bmoor.makeGetter(t);
-			line = line.substr(dex+2);
-			return function( obj ){
-				return getter(obj)+line+fn(obj);
-			};
-		}
-	}
-}
-
-function getFormatter( str ){
-	var fn,
-		lines = str.split(/{{/g);
-
-	if ( lines.length > 1 ){
-		str = lines.shift();
-		fn = doVariable( lines );
-
-		return function( obj ){
-			return str + fn( obj );
-		};
-	}else{
-		return function(){
-			return str;
+		return function( datum ){
+			bmoor.dom.triggerEvent( datum[element], eventType );
 		};
 	}
-}
+};
 
-export function log( cmd, content ){
-	var fn;
+export var addClass = {
+	factory: function( cmd, args ){
+		var element = args[0]||cmd.element,
+			className = args[1]||cmd.className;
 
-	if ( cmd.content ){
-		fn = getFormatter(cmd.content);
-
-		content.forEach(function( c ){
-			console.log( cmd.label, fn(c) );
-		});
-	}else{
-		console.log( cmd.label, content );
+		return function( datum ){
+			className.split(' ').forEach(function( className ){
+				bmoor.dom.addClass( datum[element], className );
+			});
+		};
 	}
+};
 
-	return content;
-}
+export var removeClass = {
+	factory: function( cmd, args ){
+		var element = args[0]||cmd.element,
+			className = args[1]||cmd.className;
 
-export function navigate( cmd, content ){
-	return new Promise(function( resolve ){
-		var i = 0,
-			formatter = getFormatter(cmd.hash);
-		
-		function makeCall(){
-			if ( i === content.length ){
-				resolve( content );
-			}else{
-				window.location.hash = formatter(content[i]);
-
-				i++;
-
-				if ( cmd.wait ){
-					setTimeout( makeCall, cmd.wait );
-				}else{
-					makeCall();
-				}
-			}
-		}
-
-		makeCall();
-	});
-}
-
-export function insert( cmd ){
-	return cmd.content;
-}
-
-export function value( cmd, content ){
-	var i, c,
-		targ,
-		res = [];
-
-	for( i = 0, c = content.length; i < c; i++ ){
-		targ = content[i];
-
-		if ( cmd.field ){
-			res.push(targ[cmd.field]);
-		}else if ( targ.getAttribute ){
-			res.push(targ.getAttribute(cmd.attribute||'value'));
-		}else if ( 'value' in targ ){
-			res.push(targ.value);
-		}
+		return function( datum ){
+			className.split(' ').forEach(function( className ){
+				bmoor.dom.removeClass( datum[element], className );
+			});
+		};
 	}
+};
 
-	return res;
-}
+export var navigate = {
+	factory: function( cmd, args ){
+		var formatter = bmoor.string.getFormatter(args[0]||cmd.hash);
+		return function( datum ){
+			window.location.hash = formatter(datum);
+		};
+	}
+};
 
-export function run( cmd, collection ){
-    var res = [];
+export var log = {
+	factory: function( cmd, args ){
+		var fn,
+			label = args[0]||cmd.label,
+			format = args[1]||cmd.format;
 
-    collection.forEach(function( datum ){
-        res.push(datum[cmd.method]());
-    });
-
-    return Promise.all(res);
-}
-
-export function filter( cmd, collection ){
-	var fn = bmoor.makeGetter(cmd.field);
-
-    return collection.filter(function( datum ){
-        return fn(datum);
-    });
-}
-
-export function sort( cmd, collection ){
-	var fn = bmoor.makeGetter(cmd.field);
-
-    return collection.sort(function( a, b ){
-        a = fn(a);
-        b = fn(b);
-
-        if ( a < b ){
-        	return -1;
-        }else if ( a > b ){
-        	return 1;
-        }else{
-        	return 0;
-        }
-    });
-}
-
-export function limit( cmd, content ){
-    var start = parseInt(cmd.start,10),
-        limit = parseInt(cmd.limit,10);
-
-    if ( start ){
-        return content.slice( start, start+limit );
-    }else{
-        return content.slice( 0, limit );
-    }
-}
-
-export function permutate( cmd, collection ){
-	var fns = {},
-		res = [];
-
-	Object.keys(cmd).forEach(function( key ){
-		if ( key !== 'action' ){
-			fns[key] = bmoor.makeLoader( cmd[key] );
+		if ( format ){
+			fn = bmoor.string.getFormatter(format);
 		}
-	});
 
-	collection.forEach(function( datum ){
-		var child = [];
-
-		Object.keys(fns).forEach(function( key ){
-			var t = [],
-				fn = fns[key],
-				values = fn( datum );
-
-			if ( child.length ){
-				child.forEach(function( p ){
-					values.forEach(function( v ){
-						var proto = Object.create(p);
-						proto[key] = v;
-						t.push( proto );
+		return function( datum ){
+			if ( fn ){
+				if ( bmoor.isArrayLike(datum) ){
+					bmoor.loop( datum, function( d ){
+						console.log( label, fn(d) );
 					});
-				});
+				}else{
+					console.log( label, fn(datum) );
+				}
 			}else{
-				values.forEach(function( v ){
-					var proto = {};
-					proto[key] = v;
-					t.push( proto );
-				});
+				console.log( label, datum );
 			}
+		};
+	},
+	bulk: true
+};
 
-			child = t;
+export function sleep( cmd, args ){
+	return function(){
+		return new Promise(function( resolve ){
+			setTimeout( function(){ resolve(); }, parseInt(args[0],10) );
 		});
+	};
+}
+sleep.bulk = true;
 
-		res = res.concat( child );
-	});
+export function run( cmd, args ){
+	var exec = bmoor.makeExec( args[0]||cmd.method ),
+		subs = args.slice(1);
+	return function( datum ){
+		var res = exec( datum, subs );
 
-	return res;
+		if ( res && res.then ){
+			return res;
+		}else{
+			return Promise.resolve();
+		}
+	};
+}
+
+export function hook( cmd, args, config ){
+	var method = args[0]||cmd.method;
+	return function( datum ){
+		var res = config[method]( datum );
+
+		if ( res && res.then ){
+			return res;
+		}else{
+			return Promise.resolve();
+		}
+	};
 }

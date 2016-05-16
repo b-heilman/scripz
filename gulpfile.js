@@ -17,8 +17,8 @@ gulp.task('demo', function() {
 					test: /\.js$/,
 					loader: "babel-loader",
 					query: {
-    				presets: ['es2015']
-  				}
+    					presets: ['es2015']
+  					}
 				}],
 			},
 			output: {
@@ -37,8 +37,8 @@ gulp.task('library', function() {
 					test: /\.js$/,
 					loader: "babel-loader",
 					query: {
-    				presets: ['es2015']
-  				}
+    					presets: ['es2015']
+  					}
 				}],
 			},
 			output: {
@@ -87,7 +87,7 @@ gulp.task('lint', function() {
 gulp.task('build', ['build-lint', 'demo','library'] );
 
 gulp.task('watch', ['build'], function(){
-	gulp.watch(env.jsSrc, ['lint', 'demo','library']);
+	gulp.watch(env.jsSrc.concat(['./'+env.demoConfig]), ['lint', 'demo','library']);
 });
 
 gulp.task('serve', ['watch'], function() {

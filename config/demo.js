@@ -2,6 +2,8 @@ var Scripz = require('../src/Scripz.js').default,
 	subs = {},
 	sc = new Scripz( subs );
 
+sc.debug = true;
+
 var resume;
 
 window.resume = function(){
@@ -15,136 +17,46 @@ window.kill = function(){
 };
 
 sc.eval([{
-	action: 'select',
-	selector: 'option'
-},{
-	action: 'value'
-},{
-	action: 'log',
-	label: 'values'
-},{
-	action: 'series',
-	actions: [{
-		action: 'log',
-		label: 'nav'
-	},{
-		action: 'navigate',
-		hash: 'blh/{{}}/woot'
-	},{
-		action: 'sleep',
-		wait: 1000
-	}]
-},{
-	action: 'log',
-	label: 'hello world'
+	edit: 'select:element:option',
+	action: 'log:element|navigate:blh/{{element.innerHTML}}/woot|sleep:1000'
 }]);
 
 sc.eval([{
-	action: 'series',
-	name: 'subloop',
-	actions: [{
-		action: 'log',
-		label: 'highlight'
-	},{
-		action: 'addClass',
-		className: 'highlight'
-	},{
-		action: 'sleep',
-		wait: 1000
-	},{
-		action: 'removeClass',
-		className: 'highlight'
-	},{
-		action: 'event',
-		eventType: 'click'
-	}]
+	subs: {
+		subloop: [{
+			action: 'log:highlight:{{element.innerHTML}}|' +
+				'addClass:element:highlight|sleep:1000|' +
+				'removeClass:element:highlight|event:element:click'
+		}]
+	},
+	edit: 'select:element:li',
+	action: 'log:li-selected',
+	save: 'memory'
 },{
-	action: 'select',
-	selector: 'li'
+	reset: true,
+	action: 'log:li-between'
 },{
-	action: 'save',
-	as: 'memory'
+	load: 'memory',
+	action: 'log:li-loaded'
 },{
-	action: 'value',
-	field: 'innerHTML'
-},{
-	action: 'log',
-	label: 'lis'
-},{
-	action: 'load',
-	from: 'memory'
-},{
-	action: 'log',
-	label: 'memorized'
-},{
-	action: 'loop',
-	name: 'subloop',
-	wait: 4000,
-	limit: 5
+	action: 'loop:5:subloop:4000'
 }]);
 
 sc.eval([{
-	action: 'insert',
+	fetch: 'insert:data:content',
 	content: [
 		{ a:[1,2], b:[3,4] },
 		{ a:[5,6], b:[7,8] }
 	]
 },{
-	action: 'permutate',
-	field1: 'a[]',
-	field2: 'b[]'
+	trans: 'permutate',
+	mappings: {
+		field1: 'data.a[]',
+		field2: 'data.b[]'
+	},
+	action:'log:permutation-1'
 },{
-	action: 'log',
-	label: 'permutation',
-	content: '->{{field1}} =>{{field2}}'
+	action: 'sleep:10000'
 },{
-	action: 'sleep',
-	wait: 10000
-},{
-	action: 'navigate',
-	hash: 'permu/{{field1}}/{{field2}}'
+	action: 'navigate:permu/{{field1}}/{{field2}}|log:permutation-2:->{{field1}} =>{{field2}}|sleep:1000'
 }]);
-
-
-sc.eval([{
-	action: 'insert',
-	content: [
-		{ a:3 },
-		{ a:1 },
-		{ a:2 }
-	]
-},{
-	action: 'sort', field:'a'
-},{
-	action: 'log', label:'numeric sort'
-}]);
-
-sc.eval([{
-	action: 'insert',
-	content: [
-		{ a:'z3' },
-		{ a:'a1' },
-		{ a:'m2' }
-	]
-},{
-	action: 'sort', field:'a'
-},{
-	action: 'log', label: 'alpha sort'
-}]);
-
-subs.partSort = [{
-	action: 'insert',
-	content: [
-		{ a:{b:'z3'} },
-		{ a:{b:'a1'} },
-		{ a:{b:'m2'} }
-	]
-},{
-	action: 'sort', field:'a.b'
-},{
-	action: 'log', label:'part sort'
-}];
-
-sc.eval([
-	{ action: 'series', name: 'partSort' }
-]);
