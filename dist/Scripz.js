@@ -95,7 +95,20 @@ var Scripz =
 	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 	var bmoor = __webpack_require__(3),
-	    Promise = __webpack_require__(5).Promise;
+	    Promise = __webpack_require__(5).Promise,
+	    Operation = __webpack_require__(8);
+
+	function parseOperations(operationLine) {
+		var i,
+		    c,
+		    operations = operationLine.split('|');
+
+		for (i = 0, c = operations.length; i < c; i++) {
+			operations[i] = new Operation(operations[i]);
+		}
+
+		return operations;
+	}
 
 	var Scripz = function () {
 		function Scripz(scripts) {
@@ -103,32 +116,32 @@ var Scripz =
 
 			var dis = this,
 			    memory = {},
-			    _scripts = scripts ? Object.create(scripts) : {},
 			    _edits = Object.create(baseEdits),
 			    // alter the array, return an array
+			_scripts = scripts ? Object.create(scripts) : {},
+			    _actions = Object.create(baseActions),
+			    // return promise, do some action
 			_fetchers = Object.create(baseFetchers),
 			    // return promise, with data
-			_actions = Object.create(baseActions),
-			    // return promise, do some action
 			_priority = null,
 			    _transformations = Object.create(baseTransformations); // make inline changes to the array
 
 			_actions.series = {
-				factory: function factory(cmd, args, config) {
-					var script = cmd.actions || _scripts[args[0] || cmd.name];
+				factory: function factory(operation) {
+					var script = _scripts[operation.getArg(0)];
 
 					return function (datum) {
-						return dis.eval(script.slice(0), config, [datum]);
+						return dis.eval(script.slice(0), datum);
 					};
 				}
 			};
 
 			_actions.loop = {
-				factory: function factory(cmd, args, config, actions) {
+				factory: function factory(operation, actions) {
 					// args => loop count, series name, wait time between loops
-					var count = parseInt(args.shift() || cmd.limit, 10),
-					    series = actions.series.factory(cmd, args, config),
-					    wait = parseInt(args[1] || args.wait, 10);
+					var count = parseInt(operation.getNextArg(), 10),
+					    series = actions.series.factory(operation),
+					    wait = parseInt(operation.getArg(1), 10) || 0;
 
 					return function looper(collection) {
 						var i, c;
@@ -142,14 +155,22 @@ var Scripz =
 						c = collection.length;
 
 						function loop() {
+							var iteration;
+
 							if (i < c) {
 								return series(collection[i]).then(function () {
 									i++;
 									return loop();
 								});
 							} else {
-								count--;
-								if (count) {
+								if (count === -1) {
+									iteration = 1;
+								} else {
+									count--;
+									iteration = count;
+								}
+
+								if (iteration > 0) {
 									i = 0;
 									if (wait) {
 										return new Promise(function (resolve) {
@@ -209,10 +230,9 @@ var Scripz =
 				}
 			}
 
-			function setupFetchers(event, config) {
-				var args = event.split(':'),
-				    method = args.shift(),
-				    field = args.shift(),
+			function setupFetchers(operation) {
+				var method = operation.getOp(),
+				    field = operation.getNextArg(),
 				    fn = _fetchers[method];
 
 				if (!field) {
@@ -220,70 +240,69 @@ var Scripz =
 				}
 
 				if (fn) {
-					return function (cmd, datum, agg) {
-						return fn(cmd, args, datum, config).then(function (value) {
+					return function (datum, agg) {
+						return fn(operation, datum).then(function (value) {
 							combine(datum, value, field, agg);
 						});
 					};
 				} else {
-					throw new Error('Could not find loader: ' + event);
+					throw new Error('Could not find loader (' + operation.getOp() + ') ' + operation.raw);
 				}
 			}
 
 			// accept one datum, fetchers must always return arrays, even if just array of one
-			function runFetchers(fetchers, command, content, config) {
+			function runFetchers(fetchers, content) {
 				var i,
 				    c,
-				    fn = setupFetchers(fetchers.shift(), config),
+				    fn = setupFetchers(fetchers.shift()),
 				    req = [],
 				    agg = [];
 
 				for (i = 0, c = content.length; i < c; i++) {
-					req.push(fn(command, content[i], agg));
+					req.push(fn(content[i], agg));
 				}
 
 				return Promise.all(req).then(function () {
 					if (fetchers.length) {
-						return runFetchers(fetchers, command, agg, config);
+						return runFetchers(fetchers, agg);
 					} else {
 						return agg;
 					}
 				});
 			}
 
-			function doFetchers(command, content, config) {
+			function doFetchers(command, content) {
 				if (command.fetch) {
 					// always being a new load of data with a fresh collection
-					return runFetchers(command.fetch.split('|'), command, content, config);
+					return runFetchers(parseOperations(command.fetch), content);
 				} else {
 					// if no loading, don't make any changes
 					return Promise.resolve(content);
 				}
 			}
 
-			function setupTrans(event, config) {
-				var args = event.split(':'),
-				    name = args.shift(),
+			function setupTrans(operation) {
+				var name = operation.getOp(),
 				    fn = _transformations[name];
 
 				if (fn) {
-					return function (cmd, datum) {
-						return fn(cmd, args, datum, config);
+					return function (content) {
+						return fn(operation, content);
 					};
 				} else {
-					throw new Error('Could not find transformation: ' + event);
+					throw new Error('Could not find transformation (' + operation.getOp() + ') ' + operation.raw);
 				}
 			}
 
 			// filters accept the full array, and return a full array
-			function doTransformations(command, content, config) {
+			function doTransformations(command, content) {
 				var i, c, fn, transformations;
 
 				if (command.trans) {
-					transformations = command.trans.split('|');
+					transformations = parseOperations(command.trans);
 					for (i = 0, c = transformations.length; i < c; i++) {
-						fn = setupTrans(transformations[i], config);
-						content = fn(command, content);
+						fn = setupTrans(transformations[i]);
+						content = fn(content);
 					}
 				}
 
@@ -291,35 +310,34 @@ var Scripz =
 			}
 
 			// transformations accept a datum, and return a datum
-			function setupEdit(event, config) {
-				var args = event.split(':'),
-				    method = args.shift(),
-				    field = args.shift(),
+			function setupEdit(operation) {
+				var method = operation.getOp(),
+				    field = operation.getNextArg(),
 				    fn = _edits[method];
 
 				if (!field) {
-					throw new Error('Edits require at least two arguments: ' + event);
+					throw new Error('Edits require at least two arguments: ' + operation.raw);
 				}
 
 				if (fn) {
-					return function (cmd, datum, agg) {
-						combine(datum, fn(cmd, args, datum, config), field, agg);
+					return function (datum, agg) {
+						combine(datum, fn(operation, datum), field, agg);
 					};
 				} else {
-					throw new Error('Could not find edit: ' + event);
+					throw new Error('Could not find edit (' + operation.getOp() + ') ' + operation.raw);
 				}
 			}
 
-			function doEdits(command, content, config) {
+			function doEdits(command, content) {
 				var i, c, j, co, fn, agg, edits;
 
 				if (command.edit) {
-					edits = command.edit.split('|');
+					edits = parseOperations(command.edit);
 					for (i = 0, c = edits.length; i < c; i++) {
-						fn = setupEdit(edits[i], config);
+						fn = setupEdit(edits[i]);
 						agg = [];
 						for (j = 0, co = content.length; j < co; j++) {
-							fn(command, content[j], agg);
+							fn(content[j], agg);
 						}
 						content = agg;
 					}
@@ -328,33 +346,32 @@ var Scripz =
 				return content;
 			}
 
-			function compileAction(def, command, args, config) {
+			function compileAction(action, operation) {
 				// I'm allowing actions to be defined two ways, as a factory function with attributes, or an object
-				if (bmoor.isFunction(def)) {
-					return def(command, args, config, _actions);
+				if (bmoor.isFunction(action)) {
+					return action(operation, _actions);
 				} else {
-					return def.factory(command, args, config, _actions);
+					return action.factory(operation, _actions);
 				}
 			}
 
-			function compileActions(actions, command, config) {
+			function compileActions(actions) {
 				var bulk = [],
 				    datum = [];
 
-				actions.forEach(function (act) {
-					var args = act.split(':'),
-					    name = args.shift(),
+				actions.forEach(function (operation) {
+					var name = operation.getOp(),
 					    action = _actions[name];
 
 					if (action) {
 						// actions will be run as bulk if they do not follow and datum types
 						if (action.bulk && datum.length === 0) {
-							bulk.push(compileAction(action, command, args, config));
+							bulk.push(compileAction(action, operation));
 						} else {
-							datum.push(compileAction(action, command, args, config));
+							datum.push(compileAction(action, operation));
 						}
 					} else {
-						throw new Error('Could not find: ' + name + ' from ' + JSON.stringify(command));
+						throw new Error('Could not find op (' + operation.getOp() + ') ' + operation.raw);
 					}
 				});
 
@@ -396,15 +413,15 @@ var Scripz =
 				return Promise.resolve(); // all out of things to do
 			}
 
-			function doActions(command, content, config) {
+			function doActions(command, content) {
 				if (command.action) {
-					return runActions(compileActions(command.action.split('|'), command, config), content);
+					return runActions(compileActions(parseOperations(command.action)), content);
 				} else {
 					return Promise.resolve();
 				}
 			}
 
-			this.run = function (cmd, content, config) {
+			this.run = function (cmd, config, content) {
 				if (cmd.subs) {
 					Object.keys(cmd.subs).forEach(function (key) {
 						_scripts[key] = cmd.subs[key];
@@ -419,13 +436,17 @@ var Scripz =
 				} else if (cmd.set) {
 					content = cmd.set;
 				} else if (!content || cmd.reset) {
-					content = [{}];
+					if (config) {
+						content = [Object.create(config)];
+					} else {
+						content = [{}];
+					}
 				}
 
-				return doFetchers(cmd, content, config).then(function (res) {
-					var buffer = doTransformations(cmd, doEdits(cmd, res, config), config);
+				return doFetchers(cmd, content).then(function (res) {
+					var buffer = doTransformations(cmd, doEdits(cmd, res));
 
-					return doActions(cmd, buffer, config).then(function () {
+					return doActions(cmd, buffer).then(function () {
 						if (cmd.save) {
 							memory[cmd.save] = buffer;
 						}
@@ -497,8 +518,9 @@ var Scripz =
 					return Promise.reject(error);
 				}
 
+				// I want commands to be destructive here... unless I do this another way?
 				try {
-					return this.run(commands.shift(), buffer, config).then(success, failure);
+					return this.run(commands.shift(), config, buffer).then(success, failure);
 				} catch (ex) {
 					return Promise.reject(ex);
 				}
@@ -524,10 +546,10 @@ var Scripz =
 	exports.attribute = attribute;
 	var bmoor = __webpack_require__(3);
 
-	function select(cmd, args, datum) {
+	function select(operation, datum) {
 		var node,
-		    fn = bmoor.string.getFormatter(args[0] || cmd.selector),
-		    base = args[1] || cmd.base;
+		    fn = bmoor.string.getFormatter(operation.getArg(0)),
+		    base = operation.getArg(1);
 
 		if (base) {
 			node = datum[base];
@@ -535,18 +557,18 @@ var Scripz =
 			node = document;
 		}
 
-		return node.querySelectorAll(fn(datum));
+		return bmoor.dom.getDomCollection(fn(datum));
 	}
 
-	function format(cmd, args, datum) {
-		var fn = bmoor.string.getFormatter(args[0] || cmd.format);
+	function format(operation, datum) {
+		var fn = bmoor.string.getFormatter(operation.getArg(0));
 
 		return fn(datum);
 	}
 
-	function attribute(cmd, args, datum) {
-		var element = args[0] || cmd.element,
-		    field = args[1] || cmd.field;
+	function attribute(operation, datum) {
+		var element = operation.getArg(0),
+		    field = operation.getArg(1);
 
 		return datum[element].getAttribute(field);
 	}
@@ -568,15 +590,14 @@ var Scripz =
 	});
 	exports.sleep = sleep;
 	exports.run = run;
-	exports.hook = hook;
 	var bmoor = __webpack_require__(3),
 	    Promise = __webpack_require__(5).Promise;
 
 	// factory accepts cmd, args, config
 	var event = exports.event = {
-		factory: function factory(cmd, args) {
-			var element = args[0] || cmd.element,
-			    eventType = args[1] || cmd.eventType;
+		factory: function factory(operation) {
+			var element = operation.getArg(0),
+			    eventType = operation.getArg(1);
 
 			return function (datum) {
 				bmoor.dom.triggerEvent(datum[element], eventType);
@@ -585,9 +606,9 @@ var Scripz =
 	};
 
 	var addClass = exports.addClass = {
-		factory: function factory(cmd, args) {
-			var element = args[0] || cmd.element,
-			    className = args[1] || cmd.className;
+		factory: function factory(operation) {
+			var element = operation.getArg(0),
+			    className = operation.getArg(1);
 
 			return function (datum) {
 				className.split(' ').forEach(function (className) {
@@ -598,9 +619,9 @@ var Scripz =
 	};
 
 	var removeClass = exports.removeClass = {
-		factory: function factory(cmd, args) {
-			var element = args[0] || cmd.element,
-			    className = args[1] || cmd.className;
+		factory: function factory(operation) {
+			var element = operation.getArg(0),
+			    className = operation.getArg(1);
 
 			return function (datum) {
 				className.split(' ').forEach(function (className) {
@@ -611,19 +632,57 @@ var Scripz =
 	};
 
 	var navigate = exports.navigate = {
-		factory: function factory(cmd, args) {
-			var formatter = bmoor.string.getFormatter(args[0] || cmd.hash);
+		factory: function factory(operation) {
+			var formatter = bmoor.string.getFormatter(operation.getArg(0));
 			return function (datum) {
 				window.location.hash = formatter(datum);
 			};
 		}
 	};
 
+	var focus = exports.focus = {
+		factory: function factory(operation) {
+			var focus = operation.getArg(0),
+			    target = operation.getArg(1);
+
+			return function (datum) {
+				bmoor.dom.centerOn(datum[target], datum[focus]);
+			};
+		}
+	};
+
+	var orbit = exports.orbit = {
+		factory: function factory(operation) {
+			var focus = operation.getArg(0),
+			    target = operation.getArg(1),
+			    offset = operation.getArg(2);
+
+			if (offset) {
+				offset = parseInt(offset, 10);
+			}
+
+			return function (datum) {
+				bmoor.dom.showOn(datum[target], datum[focus]);
+			};
+		}
+	};
+
+	var write = exports.write = {
+		factory: function factory(operation) {
+			var target = operation.getArg(0),
+			    content = operation.getArg(1);
+
+			return function (datum) {
+				datum[target].innerHTML = datum[content];
+			};
+		}
+	};
+
 	var log = exports.log = {
-		factory: function factory(cmd, args) {
+		factory: function factory(operation) {
 			var fn,
-			    label = args[0] || cmd.label,
-			    format = args[1] || cmd.format;
+			    label = operation.getArg(0),
+			    format = operation.getArg(1);
 
 			if (format) {
 				fn = bmoor.string.getFormatter(format);
@@ -646,35 +705,25 @@ var Scripz =
 		bulk: true
 	};
 
-	function sleep(cmd, args) {
+	function sleep(operation) {
+		var time = parseInt(operation.getArg(0), 10);
 		return function () {
 			return new Promise(function (resolve) {
 				setTimeout(function () {
 					resolve();
-				}, parseInt(args[0], 10));
+				}, time);
 			});
 		};
 	}
 	sleep.bulk = true;
 
-	function run(cmd, args) {
-		var exec = bmoor.makeExec(args[0] || cmd.method),
-		    subs = args.slice(1);
-		return function (datum) {
-			var res = exec(datum, subs);
+	function run(operation) {
+		var cmd = operation.getNextArg(),
+		    exec = bmoor.makeExec(cmd),
+		    ops = operation.getJson() || [];
 
-			if (res && res.then) {
-				return res;
-			} else {
-				return Promise.resolve();
-			}
-		};
-	}
-
-	function hook(cmd, args, config) {
-		var method = args[0] || cmd.method;
 		return function (datum) {
-			var res = config[method](datum);
+			var res = exec(datum, ops);
 
 			if (res && res.then) {
 				return res;
@@ -700,18 +749,11 @@ var Scripz =
 		value: true
 	});
 	exports.insert = insert;
-	exports.conf = conf;
 	var Promise = __webpack_require__(5).Promise;
 
-	function insert(cmd, args) {
+	function insert(operation, datum) {
 		return new Promise(function (resolve) {
-			resolve(cmd[args[0]]);
-		});
-	}
-
-	function conf(cmd, args, datum, config) {
-		return new Promise(function (resolve) {
-			resolve(config[args[0]]);
+			resolve(datum[operation.getArg(0)]);
 		});
 	}
 
@@ -730,16 +772,19 @@ var Scripz =
 	exports.permutate = permutate;
 	var bmoor = __webpack_require__(3);
 
-	function filter(cmd, args, content) {
-		var fn = bmoor.makeGetter(args[0] || cmd.field);
+	// these are performed to the whole data set
+	function filter(operation, content) {
+		var get = bmoor.makeGetter(operation.getArg(0));
 
 		return content.filter(function (datum) {
-			return fn(datum);
+			var fn = get(datum);
+
+			return bmoor.isFunction(fn) ? fn(datum) : fn;
 		});
 	}
 
-	function sort(cmd, args, content) {
-		var fn = bmoor.makeGetter(args[0] || cmd.field);
+	function sort(operation, content) {
+		var fn = bmoor.makeGetter(operation.getArg(0));
 
 		return content.sort(function (a, b) {
 			a = fn(a);
@@ -755,9 +800,9 @@ var Scripz =
 		});
 	}
 
-	function limit(cmd, args, content) {
-		var limit = parseInt(args[0] || cmd.limit, 10),
-		    start = parseInt(args[1] || cmd.start, 10);
+	function limit(operation, content) {
+		var limit = parseInt(operation.getArg(0), 10),
+		    start = parseInt(operation.getArg(1), 10);
 
 		if (start) {
 			return content.slice(start, start + limit);
@@ -766,12 +811,13 @@ var Scripz =
 		}
 	}
 
-	function permutate(cmd, args, content) {
+	function permutate(operation, content) {
 		var fns = {},
-		    res = [];
+		    res = [],
+		    mappings = operation.getJson();
 
-		Object.keys(cmd.mappings).forEach(function (key) {
-			fns[key] = bmoor.makeLoader(cmd.mappings[key]);
+		Object.keys(mappings).forEach(function (key) {
+			fns[key] = bmoor.makeLoader(mappings[key]);
 		});
 
 		bmoor.loop(content, function (datum) {
@@ -806,6 +852,92 @@ var Scripz =
 
 		return res;
 	}
+
+/***/ },
+/* 8 */
+/***/ function(module, exports) {
+
+	'use strict';
+
+	var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+	var Operation = function () {
+		function Operation(args) {
+			_classCallCheck(this, Operation);
+
+			this.rawArgs = this.raw = args;
+			this.op = this.getNextArg();
+		}
+
+		_createClass(Operation, [{
+			key: 'getOp',
+			value: function getOp() {
+				return this.op;
+			}
+		}, {
+			key: 'getNextArg',
+			value: function getNextArg() {
+				var op,
+				    pos = this.rawArgs.indexOf(':');
+
+				if (pos !== -1) {
+					op = this.rawArgs.substr(0, pos);
+					this.rawArgs = this.rawArgs.substr(pos + 1);
+				} else {
+					op = this.rawArgs;
+					this.rawArgs = '';
+				}
+
+				return op;
+			}
+		}, {
+			key: 'sub',
+			value: function sub(op, pos) {
+				var child = new Operation(null);
+				child.op = op;
+
+				child.rawArgs = this.rawArgs;
+				if (this.args) {
+					child.args = this.args.slice(pos);
+				}
+
+				return child;
+			}
+		}, {
+			key: 'getArg',
+			value: function getArg(pos) {
+				if (!this.args) {
+					this.args = this.rawArgs.split(':');
+				}
+
+				return this.args[pos];
+			}
+		}, {
+			key: 'getJson',
+			value: function getJson() {
+				if (this.json === undefined) {
+					if (this.rawArgs) {
+						try {
+							this.json = JSON.parse(this.rawArgs);
+						} catch (ex) {
+							console.log('json parse', this.rawArgs);
+							this.json = null;
+						}
+					} else {
+						this.json = null;
+					}
+				}
+
+				return this.json;
+			}
+		}]);
+
+		return Operation;
+	}();
+
+	module.exports = Operation;
 
 /***/ }
 /******/ ]);

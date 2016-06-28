@@ -30,6 +30,23 @@ li.highlight {
 	<button onclick="kill()">Stop []</button>
 </div>
 
+<button onclick="tutorial()">Tutorial</button>
+<div style="width:600px; height:500px; position: relative;">
+	<span id="first" 
+		style="left:0px; top: 0px; width: 30px; height: 30px; position: absolute; border: 1px solid black;">1</span>
+	<span id="second"
+		style="left:0px; bottom: 0px; width: 30px; height: 30px; position: absolute; border: 1px solid black;">2</span>
+	<span id="third"
+		style="right:0px; bottom: 0px; width: 30px; height: 30px; position: absolute; border: 1px solid black;">3</span>
+	<span id="fourth"
+		style="right:0px; top: 0px; width: 30px; height: 30px; position: absolute; border: 1px solid black;">4</span>
+</div>
+<svg id="target" viewBox="0 0 120 120" style="width: 30px; height: 30px">
+	<circle cx="50%" cy="50%" r="50%" style="fill: red;" class="aura"/>
+	<circle cx="50%" cy="50%" r="20%" style="fill: pink;"/>
+</svg>
+<span id="textwall" style="width: 200px; max-height: 300px;"></span>
+
 <script src="demo.js"></script>
 
 </body>

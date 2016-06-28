@@ -4,13 +4,14 @@ describe('scripz - filters - sort', function(){
 		var sc = new Scripz();
 		sc.eval([{
 			fetch: 'insert:test:content',
+			trans: 'sort:test.a'
+		}],{
 			content: [
 				{ a:3 },
 				{ a:1 },
 				{ a:2 }
-			],
-			trans: 'sort:test.a'
-		}]).then(function( res ){
+			]
+		}).then(function( res ){
 			expect( res ).toEqual( [{test:{a:1}},{test:{a:2}},{test:{a:3}}] );
 			done();
 		});
@@ -20,13 +21,14 @@ describe('scripz - filters - sort', function(){
 		var sc = new Scripz();
 		sc.eval([{
 			fetch: 'insert:test:content',
+			trans: 'sort:test.a'
+		}],{
 			content: [
 				{ a:'z3' },
 				{ a:'a1' },
 				{ a:'m2' }
-			],
-			trans: 'sort:test.a'
-		}]).then(function( res ){
+			]
+		}).then(function( res ){
 			expect( res ).toEqual( [{test:{a:'a1'}},{test:{a:'m2'}},{test:{a:'z3'}}] );
 			done();
 		});
@@ -37,13 +39,14 @@ describe('scripz - filters - sort', function(){
 
 		sc.eval([{
 			fetch: 'insert:test:content',
+			trans: 'sort:test.a.b'
+		}],{
 			content: [
 				{ a:{b:'z3'} },
 				{ a:{b:'a1'} },
 				{ a:{b:'m2'} }
-			],
-			trans: 'sort:test.a.b'
-		}]).then(function( res ){
+			]
+		}).then(function( res ){
 			expect( res ).toEqual( [{test:{a:{b:'a1'}}},{test:{a:{b:'m2'}}},{test:{a:{b:'z3'}}}] );
 			done();
 		});

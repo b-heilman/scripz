@@ -16,9 +16,7 @@ module.exports = function(config) {
             'node_modules/bmoor/dist/bmoor.js',
             'dist/scripz.js',
             //------------
-            'test/lib/**.js',
-            'test/mock/**/*.js',
-            'test/spec/**/*.js'
+            'test/**/*.js'
         ],
 
         reporters: ['progress'],

@@ -8,9 +8,10 @@ describe('scripz - actions - navigate', function(){
 		
 		sc.eval([{
 			edit: 'select:element:span',
-			action: 'navigate:blh/{{element.innerHTML}}/woot|hook:test'
+			action: 'navigate:blh/{{element.innerHTML}}/woot|run:test'
 		}],{
-			test: function( datum ){
+			test: function(){
+				var datum = this;
 				expect( window.location.hash ).toBe('#blh/'+datum.element.innerHTML+'/woot');
 			}
 		}).then(done,done);

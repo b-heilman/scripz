@@ -90,19 +90,32 @@
 
 	sc.eval([{
 		fetch: 'insert:data:content',
-		content: [{ a: [1, 2], b: [3, 4] }, { a: [5, 6], b: [7, 8] }]
-	}, {
-		trans: 'permutate',
-		mappings: {
-			field1: 'data.a[]',
-			field2: 'data.b[]'
-		},
+		trans: 'permutate:{"field1":"data.a[]","field2":"data.b[]" }',
 		action: 'log:permutation-1'
 	}, {
 		action: 'sleep:10000'
 	}, {
 		action: 'navigate:permu/{{field1}}/{{field2}}|log:permutation-2:->{{field1}} =>{{field2}}|sleep:1000'
-	}]);
+	}], {
+		content: [{ a: [1, 2], b: [3, 4] }, { a: [5, 6], b: [7, 8] }]
+	});
+
+	//--- Tutorial---
+	window.tutorial = function () {
+		sc.eval([{
+			edit: 'select:target:#first|select:focus:#target|select:text:#textwall|format:content:This is a test',
+			action: 'focus:target:focus|removeClass:target:hidden|sleep:2000|addClass:target:hidden|orbit:target:text|write:text:content|sleep:2000'
+		}, {
+			edit: 'select:target:#second|select:focus:#target|select:text:#textwall|format:content:This is another test',
+			action: 'focus:target:focus|removeClass:target:hidden|sleep:2000|addClass:target:hidden|orbit:target:text|write:text:content|sleep:2000'
+		}, {
+			edit: 'select:target:#third|select:focus:#target|select:text:#textwall|format:content:Third time is a charm',
+			action: 'focus:target:focus|removeClass:target:hidden|sleep:2000|addClass:target:hidden|orbit:target:text|write:text:content|sleep:2000'
+		}, {
+			edit: 'select:target:#fourth|select:focus:#target|select:text:#textwall|format:content:I have no clue',
+			action: 'focus:target:focus|removeClass:target:hidden|sleep:2000|addClass:target:hidden|orbit:target:text|write:text:content|sleep:2000'
+		}]);
+	};
 
 /***/ },
 /* 1 */
@@ -120,15 +133,15 @@
 
 	var baseEdits = _interopRequireWildcard(_editors);
 
-	var _actions2 = __webpack_require__(15);
+	var _actions2 = __webpack_require__(17);
 
 	var baseActions = _interopRequireWildcard(_actions2);
 
-	var _fetchers2 = __webpack_require__(21);
+	var _fetchers2 = __webpack_require__(23);
 
 	var baseFetchers = _interopRequireWildcard(_fetchers2);
 
-	var _transformations2 = __webpack_require__(22);
+	var _transformations2 = __webpack_require__(24);
 
 	var baseTransformations = _interopRequireWildcard(_transformations2);
 
@@ -137,7 +150,20 @@
 	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 	var bmoor = __webpack_require__(3),
-	    Promise = __webpack_require__(16).Promise;
+	    Promise = __webpack_require__(18).Promise,
+	    Operation = __webpack_require__(25);
+
+	function parseOperations(operationLine) {
+		var i,
+		    c,
+		    operations = operationLine.split('|');
+
+		for (i = 0, c = operations.length; i < c; i++) {
+			operations[i] = new Operation(operations[i]);
+		}
+
+		return operations;
+	}
 
 	var Scripz = function () {
 		function Scripz(scripts) {
@@ -145,32 +171,32 @@
 
 			var dis = this,
 			    memory = {},
-			    _scripts = scripts ? Object.create(scripts) : {},
 			    _edits = Object.create(baseEdits),
 			    // alter the array, return an array
+			_scripts = scripts ? Object.create(scripts) : {},
+			    _actions = Object.create(baseActions),
+			    // return promise, do some action
 			_fetchers = Object.create(baseFetchers),
 			    // return promise, with data
-			_actions = Object.create(baseActions),
-			    // return promise, do some action
 			_priority = null,
 			    _transformations = Object.create(baseTransformations); // make inline changes to the array
 
 			_actions.series = {
-				factory: function factory(cmd, args, config) {
-					var script = cmd.actions || _scripts[args[0] || cmd.name];
+				factory: function factory(operation) {
+					var script = _scripts[operation.getArg(0)];
 
 					return function (datum) {
-						return dis.eval(script.slice(0), config, [datum]);
+						return dis.eval(script.slice(0), datum);
 					};
 				}
 			};
 
 			_actions.loop = {
-				factory: function factory(cmd, args, config, actions) {
+				factory: function factory(operation, actions) {
 					// args => loop count, series name, wait time between loops
-					var count = parseInt(args.shift() || cmd.limit, 10),
-					    series = actions.series.factory(cmd, args, config),
-					    wait = parseInt(args[1] || args.wait, 10);
+					var count = parseInt(operation.getNextArg(), 10),
+					    series = actions.series.factory(operation),
+					    wait = parseInt(operation.getArg(1), 10) || 0;
 
 					return function looper(collection) {
 						var i, c;
@@ -184,14 +210,22 @@
 						c = collection.length;
 
 						function loop() {
+							var iteration;
+
 							if (i < c) {
 								return series(collection[i]).then(function () {
 									i++;
 									return loop();
 								});
 							} else {
-								count--;
-								if (count) {
+								if (count === -1) {
+									iteration = 1;
+								} else {
+									count--;
+									iteration = count;
+								}
+
+								if (iteration > 0) {
 									i = 0;
 									if (wait) {
 										return new Promise(function (resolve) {
@@ -251,10 +285,9 @@
 				}
 			}
 
-			function setupFetchers(event, config) {
-				var args = event.split(':'),
-				    method = args.shift(),
-				    field = args.shift(),
+			function setupFetchers(operation) {
+				var method = operation.getOp(),
+				    field = operation.getNextArg(),
 				    fn = _fetchers[method];
 
 				if (!field) {
@@ -262,70 +295,69 @@
 				}
 
 				if (fn) {
-					return function (cmd, datum, agg) {
-						return fn(cmd, args, datum, config).then(function (value) {
+					return function (datum, agg) {
+						return fn(operation, datum).then(function (value) {
 							combine(datum, value, field, agg);
 						});
 					};
 				} else {
-					throw new Error('Could not find loader: ' + event);
+					throw new Error('Could not find loader (' + operation.getOp() + ') ' + operation.raw);
 				}
 			}
 
 			// accept one datum, fetchers must always return arrays, even if just array of one
-			function runFetchers(fetchers, command, content, config) {
+			function runFetchers(fetchers, content) {
 				var i,
 				    c,
-				    fn = setupFetchers(fetchers.shift(), config),
+				    fn = setupFetchers(fetchers.shift()),
 				    req = [],
 				    agg = [];
 
 				for (i = 0, c = content.length; i < c; i++) {
-					req.push(fn(command, content[i], agg));
+					req.push(fn(content[i], agg));
 				}
 
 				return Promise.all(req).then(function () {
 					if (fetchers.length) {
-						return runFetchers(fetchers, command, agg, config);
+						return runFetchers(fetchers, agg);
 					} else {
 						return agg;
 					}
 				});
 			}
 
-			function doFetchers(command, content, config) {
+			function doFetchers(command, content) {
 				if (command.fetch) {
 					// always being a new load of data with a fresh collection
-					return runFetchers(command.fetch.split('|'), command, content, config);
+					return runFetchers(parseOperations(command.fetch), content);
 				} else {
 					// if no loading, don't make any changes
 					return Promise.resolve(content);
 				}
 			}
 
-			function setupTrans(event, config) {
-				var args = event.split(':'),
-				    name = args.shift(),
+			function setupTrans(operation) {
+				var name = operation.getOp(),
 				    fn = _transformations[name];
 
 				if (fn) {
-					return function (cmd, datum) {
-						return fn(cmd, args, datum, config);
+					return function (content) {
+						return fn(operation, content);
 					};
 				} else {
-					throw new Error('Could not find transformation: ' + event);
+					throw new Error('Could not find transformation (' + operation.getOp() + ') ' + operation.raw);
 				}
 			}
 
 			// filters accept the full array, and return a full array
-			function doTransformations(command, content, config) {
+			function doTransformations(command, content) {
 				var i, c, fn, transformations;
 
 				if (command.trans) {
-					transformations = command.trans.split('|');
+					transformations = parseOperations(command.trans);
 					for (i = 0, c = transformations.length; i < c; i++) {
-						fn = setupTrans(transformations[i], config);
-						content = fn(command, content);
+						fn = setupTrans(transformations[i]);
+						content = fn(content);
 					}
 				}
 
@@ -333,35 +365,34 @@
 			}
 
 			// transformations accept a datum, and return a datum
-			function setupEdit(event, config) {
-				var args = event.split(':'),
-				    method = args.shift(),
-				    field = args.shift(),
+			function setupEdit(operation) {
+				var method = operation.getOp(),
+				    field = operation.getNextArg(),
 				    fn = _edits[method];
 
 				if (!field) {
-					throw new Error('Edits require at least two arguments: ' + event);
+					throw new Error('Edits require at least two arguments: ' + operation.raw);
 				}
 
 				if (fn) {
-					return function (cmd, datum, agg) {
-						combine(datum, fn(cmd, args, datum, config), field, agg);
+					return function (datum, agg) {
+						combine(datum, fn(operation, datum), field, agg);
 					};
 				} else {
-					throw new Error('Could not find edit: ' + event);
+					throw new Error('Could not find edit (' + operation.getOp() + ') ' + operation.raw);
 				}
 			}
 
-			function doEdits(command, content, config) {
+			function doEdits(command, content) {
 				var i, c, j, co, fn, agg, edits;
 
 				if (command.edit) {
-					edits = command.edit.split('|');
+					edits = parseOperations(command.edit);
 					for (i = 0, c = edits.length; i < c; i++) {
-						fn = setupEdit(edits[i], config);
+						fn = setupEdit(edits[i]);
 						agg = [];
 						for (j = 0, co = content.length; j < co; j++) {
-							fn(command, content[j], agg);
+							fn(content[j], agg);
 						}
 						content = agg;
 					}
@@ -370,33 +401,32 @@
 				return content;
 			}
 
-			function compileAction(def, command, args, config) {
+			function compileAction(action, operation) {
 				// I'm allowing actions to be defined two ways, as a factory function with attributes, or an object
-				if (bmoor.isFunction(def)) {
-					return def(command, args, config, _actions);
+				if (bmoor.isFunction(action)) {
+					return action(operation, _actions);
 				} else {
-					return def.factory(command, args, config, _actions);
+					return action.factory(operation, _actions);
 				}
 			}
 
-			function compileActions(actions, command, config) {
+			function compileActions(actions) {
 				var bulk = [],
 				    datum = [];
 
-				actions.forEach(function (act) {
-					var args = act.split(':'),
-					    name = args.shift(),
+				actions.forEach(function (operation) {
+					var name = operation.getOp(),
 					    action = _actions[name];
 
 					if (action) {
 						// actions will be run as bulk if they do not follow and datum types
 						if (action.bulk && datum.length === 0) {
-							bulk.push(compileAction(action, command, args, config));
+							bulk.push(compileAction(action, operation));
 						} else {
-							datum.push(compileAction(action, command, args, config));
+							datum.push(compileAction(action, operation));
 						}
 					} else {
-						throw new Error('Could not find: ' + name + ' from ' + JSON.stringify(command));
+						throw new Error('Could not find op (' + operation.getOp() + ') ' + operation.raw);
 					}
 				});
 
@@ -438,15 +468,15 @@
 				return Promise.resolve(); // all out of things to do
 			}
 
-			function doActions(command, content, config) {
+			function doActions(command, content) {
 				if (command.action) {
-					return runActions(compileActions(command.action.split('|'), command, config), content);
+					return runActions(compileActions(parseOperations(command.action)), content);
 				} else {
 					return Promise.resolve();
 				}
 			}
 
-			this.run = function (cmd, content, config) {
+			this.run = function (cmd, config, content) {
 				if (cmd.subs) {
 					Object.keys(cmd.subs).forEach(function (key) {
 						_scripts[key] = cmd.subs[key];
@@ -461,13 +491,17 @@
 				} else if (cmd.set) {
 					content = cmd.set;
 				} else if (!content || cmd.reset) {
-					content = [{}];
+					if (config) {
+						content = [Object.create(config)];
+					} else {
+						content = [{}];
+					}
 				}
 
-				return doFetchers(cmd, content, config).then(function (res) {
-					var buffer = doTransformations(cmd, doEdits(cmd, res, config), config);
+				return doFetchers(cmd, content).then(function (res) {
+					var buffer = doTransformations(cmd, doEdits(cmd, res));
 
-					return doActions(cmd, buffer, config).then(function () {
+					return doActions(cmd, buffer).then(function () {
 						if (cmd.save) {
 							memory[cmd.save] = buffer;
 						}
@@ -539,8 +573,9 @@
 					return Promise.reject(error);
 				}
 
+				// I want commands to be destructive here... unless I do this another way?
 				try {
-					return this.run(commands.shift(), buffer, config).then(success, failure);
+					return this.run(commands.shift(), config, buffer).then(success, failure);
 				} catch (ex) {
 					return Promise.reject(ex);
 				}
@@ -566,10 +601,10 @@
 	exports.attribute = attribute;
 	var bmoor = __webpack_require__(3);
 
-	function select(cmd, args, datum) {
+	function select(operation, datum) {
 		var node,
-		    fn = bmoor.string.getFormatter(args[0] || cmd.selector),
-		    base = args[1] || cmd.base;
+		    fn = bmoor.string.getFormatter(operation.getArg(0)),
+		    base = operation.getArg(1);
 
 		if (base) {
 			node = datum[base];
@@ -577,18 +612,18 @@
 			node = document;
 		}
 
-		return node.querySelectorAll(fn(datum));
+		return bmoor.dom.getDomCollection(fn(datum));
 	}
 
-	function format(cmd, args, datum) {
-		var fn = bmoor.string.getFormatter(args[0] || cmd.format);
+	function format(operation, datum) {
+		var fn = bmoor.string.getFormatter(operation.getArg(0));
 
 		return fn(datum);
 	}
 
-	function attribute(cmd, args, datum) {
-		var element = args[0] || cmd.element,
-		    field = args[1] || cmd.field;
+	function attribute(operation, datum) {
+		var element = operation.getArg(0),
+		    field = operation.getArg(1);
 
 		return datum[element].getAttribute(field);
 	}
@@ -609,6 +644,8 @@
 	bmoor.string = __webpack_require__(13);
 	bmoor.promise = __webpack_require__(14);
 
+	bmoor.interfaces = __webpack_require__(15);
+
 	module.exports = bmoor;
 
 /***/ },
@@ -617,36 +654,8 @@
 
 	'use strict';
 
-	Object.defineProperty(exports, "__esModule", {
-		value: true
-	});
-
 	var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj; };
 
-	exports.isUndefined = isUndefined;
-	exports.isDefined = isDefined;
-	exports.isString = isString;
-	exports.isNumber = isNumber;
-	exports.isFunction = isFunction;
-	exports.isObject = isObject;
-	exports.isBoolean = isBoolean;
-	exports.isArrayLike = isArrayLike;
-	exports.isArray = isArray;
-	exports.isEmpty = isEmpty;
-	exports.set = set;
-	exports.makeSetter = makeSetter;
-	exports.get = get;
-	exports.makeGetter = makeGetter;
-	exports.exec = exec;
-	exports.makeExec = makeExec;
-	exports.load = load;
-	exports.makeLoader = makeLoader;
-	exports.del = del;
-	exports.loop = loop;
-	exports.each = each;
-	exports.iterate = iterate;
-	exports.safe = safe;
-	exports.naked = naked;
 	/**
 	 * Library Functions
 	 **/
@@ -1206,89 +1215,36 @@
 		});
 	}
 
-	/**
-	 * Borrowed From Angular : I can't write it better
-	 * ----------------------------------------
-	 *
-	 * Implementation Notes for non-IE browsers
-	 * ----------------------------------------
-	 * Assigning a URL to the href property of an anchor DOM node, even one attached to the DOM,
-	 * results both in the normalizing and parsing of the URL.  Normalizing means that a relative
-	 * URL will be resolved into an absolute URL in the context of the application document.
-	 * Parsing means that the anchor node's host, hostname, protocol, port, pathname and related
-	 * properties are all populated to reflect the normalized URL.  This approach has wide
-	 * compatibility - Safari 1+, Mozilla 1+, Opera 7+,e etc.  See
-	 * http://www.aptana.com/reference/html/api/HTMLAnchorElement.html
-	 *
-	 * Implementation Notes for IE
-	 * ---------------------------
-	 * IE >= 8 and <= 10 normalizes the URL when assigned to the anchor node similar to the other
-	 * browsers.  However, the parsed components will not be set if the URL assigned did not specify
-	 * them.  (e.g. if you assign a.href = 'foo', then a.protocol, a.host, etc. will be empty.)  We
-	 * work around that by performing the parsing in a 2nd step by taking a previously normalized
-	 * URL (e.g. by assigning to a.href) and assigning it a.href again.  This correctly populates the
-	 * properties such as protocol, hostname, port, etc.
-	 *
-	 * IE7 does not normalize the URL when assigned to an anchor node.  (Apparently, it does, if one
-	 * uses the inner HTML approach to assign the URL as part of an HTML snippet -
-	 * http://stackoverflow.com/a/472729)  However, setting img[src] does normalize the URL.
-	 * Unfortunately, setting img[src] to something like 'javascript:foo' on IE throws an exception.
-	 * Since the primary usage for normalizing URLs is to sanitize such URLs, we can't use that
-	 * method and IE < 8 is unsupported.
-	 *
-	 * References:
-	 *   http://developer.mozilla.org/en-US/docs/Web/API/HTMLAnchorElement
-	 *   http://www.aptana.com/reference/html/api/HTMLAnchorElement.html
-	 *   http://url.spec.whatwg.org/#urlutils
-	 *   https://github.com/angular/angular.js/pull/2902
-	 *   http://james.padolsey.com/javascript/parsing-urls-with-the-dom/
-	 *
-	 * @function
-	 * @param {string} url The URL to be parsed.
-	 * @description Normalizes and parses a URL.
-	 * @returns {object} Returns the normalized URL as a dictionary.
-	 *
-	 *   | member name   | Description |
-	 *   |---------------|-------------|
-	 *   | href          | A normalized version of the provided URL if it was not an absolute URL |
-	 *   | protocol      | The protocol including the trailing colon                              |
-	 *   | host          | The host and port (if the port is non-default) of the normalizedUrl    |
-	 *   | search        | The search params, minus the question mark                             |
-	 *   | hash          | The hash string, minus the hash symbol
-	 *   | hostname      | The hostname
-	 *   | port          | The port, without ':'
-	 *   | pathname      | The pathname, beginning with '/'
-	 *
-	 */
-	// TODO : Whhhhyyyy do I have this here?
-	/*
-	function urlResolve( url ) {
-	var href = url,
-		urlParsingNode = document.createElement('a');
-
-	if (msie) {
-		// Normalize before parse.  Refer Implementation Notes on why this is
-		// done in two steps on IE.
-		urlParsingNode.setAttribute('href', href);
-		href = urlParsingNode.href;
-	}
-
-	urlParsingNode.setAttribute('href', href);
-
-	// urlParsingNode provides the UrlUtils interface - http://url.spec.whatwg.org/#urlutils
-	return {
-		href: urlParsingNode.href,
-		protocol: urlParsingNode.protocol ? urlParsingNode.protocol.replace(/:$/, '') : '',
-		host: urlParsingNode.host,
-		search: urlParsingNode.search ? urlParsingNode.search.replace(/^\?/, '') : '',
-		hash: urlParsingNode.hash ? urlParsingNode.hash.replace(/^#/, '') : '',
-		hostname: urlParsingNode.hostname,
-		port: urlParsingNode.port,
-		pathname: (urlParsingNode.pathname.charAt(0) === '/') ? 
-			urlParsingNode.pathname : '/' + urlParsingNode.pathname
+	module.exports = {
+		// booleans
+		isUndefined: isUndefined,
+		isDefined: isDefined,
+		isString: isString,
+		isNumber: isNumber,
+		isFunction: isFunction,
+		isObject: isObject,
+		isBoolean: isBoolean,
+		isArrayLike: isArrayLike,
+		isArray: isArray,
+		isEmpty: isEmpty,
+		// access
+		parse: parse,
+		set: set,
+		makeSetter: makeSetter,
+		get: get,
+		makeGetter: makeGetter,
+		exec: exec,
+		makeExec: makeExec,
+		load: load,
+		makeLoader: makeLoader,
+		del: del,
+		// controls
+		loop: loop,
+		each: each,
+		iterate: iterate,
+		safe: safe,
+		naked: naked
 	};
-	}
-	*/
 
 /***/ },
 /* 5 */
@@ -1296,13 +1252,6 @@
 
 	'use strict';
 
-	Object.defineProperty(exports, "__esModule", {
-		value: true
-	});
-	exports.bringForward = bringForward;
-	exports.addClass = addClass;
-	exports.removeClass = removeClass;
-	exports.triggerEvent = triggerEvent;
 	var bmoor = __webpack_require__(4),
 	    regex = {};
 
@@ -1317,6 +1266,83 @@
 		return reg;
 	}
 
+	function getScrollPosition(doc) {
+		if (!doc) {
+			doc = document;
+		}
+
+		return {
+			left: window.pageXOffset || (doc.documentElement || doc.body).scrollLeft,
+			top: window.pageYOffset || (doc.documentElement || doc.body).scrollTop
+		};
+	}
+
+	function getBoundryBox(element) {
+		return element.getBoundingClientRect();
+	}
+
+	function centerOn(element, target, doc) {
+		var el = getBoundryBox(element),
+		    targ = getBoundryBox(target),
+		    pos = getScrollPosition(doc);
+
+		if (!doc) {
+			doc = document;
+		}
+
+		element.style.top = pos.top + targ.top + targ.height / 2 - el.height / 2;
+		element.style.left = pos.left + targ.left + targ.width / 2 - el.width / 2;
+		element.style.right = '';
+		element.style.bottom = '';
+
+		element.style.position = 'absolute';
+		doc.body.appendChild(element);
+	}
+
+	function showOn(element, target, doc) {
+		var direction,
+		    targ = getBoundryBox(target),
+		    x = targ.x + targ.width / 2,
+		    y = targ.y + targ.height / 2,
+		    centerX = window.innerWidth / 2,
+		    centerY = window.innerHeight / 2,
+		    pos = getScrollPosition(doc);
+
+		if (!doc) {
+			doc = document;
+		}
+
+		if (x < centerX) {
+			// right side has more room
+			direction = 'r';
+			element.style.left = pos.left + targ.right;
+			element.style.right = '';
+		} else {
+			// left side has more room
+			//element.style.left = targ.left - el.width - offset;
+			direction = 'l';
+			element.style.right = window.innerWidth - targ.left - pos.left;
+			element.style.left = '';
+		}
+
+		if (y < centerY) {
+			// more room on bottom
+			direction = 'b' + direction;
+			element.style.top = pos.top + targ.bottom;
+			element.style.bottom = '';
+		} else {
+			// more room on top
+			direction = 't' + direction;
+			element.style.bottom = window.innerHeight - targ.top - pos.top;
+			element.style.top = '';
+		}
+
+		element.style.position = 'absolute';
+		doc.body.appendChild(element);
+
+		return direction;
+	}
+
 	function massage(elements) {
 		if (!bmoor.isArrayLike(elements)) {
 			elements = [elements];
@@ -1325,18 +1351,46 @@
 		return elements;
 	}
 
-	function bringForward(elements) {
-		var i, c, node;
+	function getDomElement(element, doc) {
+		if (!doc) {
+			doc = document;
+		}
+
+		if (bmoor.isString(element)) {
+			return doc.querySelector(element);
+		} else {
+			return element;
+		}
+	}
+
+	function getDomCollection(elements, doc) {
+		var i,
+		    c,
+		    j,
+		    co,
+		    el,
+		    selection,
+		    els = [];
+
+		if (!doc) {
+			doc = document;
+		}
 
 		elements = massage(elements);
 
 		for (i = 0, c = elements.length; i < c; i++) {
-			node = elements[i];
-
-			if (node.parentNode) {
-				node.parentNode.appendChild(node);
+			el = elements[i];
+			if (bmoor.isString(el)) {
+				selection = doc.querySelectorAll(el);
+				for (j = 0, co = selection.length; j < co; j++) {
+					els.push(selection[j]);
+				}
+			} else {
+				els.push(el);
 			}
 		}
+
+		return els;
 	}
 
 	function addClass(elements, className) {
@@ -1431,8 +1485,6 @@
 
 					event = new EventClass(eventName, eventData);
 				} catch (ex) {
-					console.log('event trigger failing over');
-
 					// slightly older style, give some backwards compatibility
 					switch (eventName) {
 						case 'click':
@@ -1467,17 +1519,39 @@
 		}
 	}
 
+	function bringForward(elements) {
+		var i, c, node;
+
+		elements = massage(elements);
+
+		for (i = 0, c = elements.length; i < c; i++) {
+			node = elements[i];
+
+			if (node.parentNode) {
+				node.parentNode.appendChild(node);
+			}
+		}
+	}
+
+	module.exports = {
+		getScrollPosition: getScrollPosition,
+		getBoundryBox: getBoundryBox,
+		getDomElement: getDomElement,
+		getDomCollection: getDomCollection,
+		showOn: showOn,
+		centerOn: centerOn,
+		addClass: addClass,
+		removeClass: removeClass,
+		triggerEvent: triggerEvent,
+		bringForward: bringForward
+	};
+
 /***/ },
 /* 6 */
 /***/ function(module, exports) {
 
 	"use strict";
 
-	Object.defineProperty(exports, "__esModule", {
-		value: true
-	});
-	exports.setUid = setUid;
-	exports.getUid = getUid;
 	var _id = 0;
 
 	function nextUid() {
@@ -1502,21 +1576,17 @@
 		return obj.$$bmoorUid;
 	}
 
+	module.exports = {
+		setUid: setUid,
+		getUid: getUid
+	};
+
 /***/ },
 /* 7 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	Object.defineProperty(exports, "__esModule", {
-		value: true
-	});
-	exports.indexOf = indexOf;
-	exports.remove = remove;
-	exports.removeAll = removeAll;
-	exports.bisect = bisect;
-	exports.filter = filter;
-	exports.compare = compare;
 	var bmoor = __webpack_require__(4);
 
 	/**
@@ -1660,6 +1730,7 @@
 			}
 		}
 	}
+
 	/**
 	 * Generate a new array whose content is a subset of the intial array, but satisfies the supplied function
 	 *
@@ -1753,27 +1824,23 @@
 		};
 	}
 
+	module.exports = {
+		indexOf: indexOf,
+		remove: remove,
+		removeAll: removeAll,
+		bisect: bisect,
+		filter: filter,
+		compare: compare
+	};
+
 /***/ },
 /* 8 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	Object.defineProperty(exports, "__esModule", {
-		value: true
-	});
-
 	var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj; };
 
-	exports.values = values;
-	exports.keys = keys;
-	exports.explode = explode;
-	exports.mask = mask;
-	exports.extend = extend;
-	exports.empty = empty;
-	exports.copy = copy;
-	exports.merge = merge;
-	exports.equals = equals;
 	var bmoor = __webpack_require__(4);
 
 	function values(obj) {
@@ -1905,77 +1972,6 @@
 		return to;
 	}
 
-	/*
-	function arrayOverride( to, from, deep ){
-		var i, c,
-			f,
-			t;
-
-		if ( isArrayLike(to) && isArrayLike(from) ){
-			to.length = from.length;
-		}
-
-		for( i = 0, c = from.length; i < c; i++ ){
-			f = from[i];
-			t = to[i];
-
-			if ( t === undefined && !deep ){
-				to[ i ] = f;
-			} else if ( isArrayLike(f) ){
-				if ( !isArrayLike(t) ){
-					t = to[i] = [];
-				}
-
-				arrayOverride( t, f, deep );
-			} else if ( isObject(f) ){
-				if ( !isObject(t) ){
-					t = to[i] = {};
-				}
-
-				override( t, f, deep );
-			} else if ( f !== t ){
-				to[ i ] = f;
-			}
-		}
-
-		return to;
-	}
-
-	// will do a deep copy of to <- from[1], removing anything in to that isn't in from
-	export function override( to, from, deep ){
-		safe( from, function( f, key ){
-			var t = to[ key ];
-
-			if ( t === undefined && (!deep||f&&f.$constructor) ){
-				to[ key ] = f;
-			}else if ( isArrayLike(f) ){
-				if ( !isArrayLike(t) ){
-					t = to[ key ] = [];
-				}
-
-				arrayOverride( t, f, deep );
-			}else if ( isObject(f) ){
-				if ( !isObject(t) ){
-					t = to[ key ] = {};
-				}
-
-				override( t, f, deep );
-			}else if ( f !== t ){
-				to[ key ] = f;
-			}
-		});
-
-		// now we prune the 'to'
-		safe( to, function( f, key){
-			if ( from[key] === undefined ){
-				delete to[key];
-			}
-		});
-
-		return to;
-	}
-	*/
-
 	/**
 	 * A general comparison algorithm to test if two objects are equal
 	 *
@@ -2044,17 +2040,80 @@
 		return false;
 	}
 
+	module.exports = {
+		keys: keys,
+		values: values,
+		explode: explode,
+		mask: mask,
+		extend: extend,
+		empty: empty,
+		copy: copy,
+		merge: merge,
+		equals: equals
+	};
+
 /***/ },
 /* 9 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	module.exports = {
-		mixin: __webpack_require__(10).default,
-		decorate: __webpack_require__(11).default,
-		plugin: __webpack_require__(12).default
-	};
+	var bmoor = __webpack_require__(4),
+	    mixin = __webpack_require__(10),
+	    plugin = __webpack_require__(11),
+	    decorate = __webpack_require__(12);
+
+	function proc(action, proto, def) {
+		var i, c;
+
+		if (bmoor.isArray(def)) {
+			for (i = 0, c = def.length; i < c; i++) {
+				action(proto, def[i]);
+			}
+		} else {
+			action(proto, def);
+		}
+	}
+
+	function maker(root, config, base) {
+		if (!base) {
+			base = function BmoorPrototype() {};
+
+			if (config) {
+				if (bmoor.isFunction(root)) {
+					base = function BmoorPrototype() {
+						root.apply(this, arguments);
+					};
+
+					base.prototype = Object.create(root.prototype);
+				} else {
+					base.prototype = Object.create(root);
+				}
+			} else {
+				config = root;
+			}
+		}
+
+		if (config.mixin) {
+			proc(mixin, base.prototype, config.mixin);
+		}
+
+		if (config.decorate) {
+			proc(decorate, base.prototype, config.decorate);
+		}
+
+		if (config.plugin) {
+			proc(plugin, base.prototype, config.plugin);
+		}
+
+		return base;
+	}
+
+	maker.mixin = mixin;
+	maker.decorate = decorate;
+	maker.plugin = plugin;
+
+	module.exports = maker;
 
 /***/ },
 /* 10 */
@@ -2062,17 +2121,13 @@
 
 	'use strict';
 
-	Object.defineProperty(exports, "__esModule", {
-		value: true
-	});
+	var bmoor = __webpack_require__(4);
 
-	exports.default = function (to, from) {
+	module.exports = function (to, from) {
 		bmoor.iterate(from, function (val, key) {
 			to[key] = val;
 		});
 	};
-
-	var bmoor = __webpack_require__(4);
 
 /***/ },
 /* 11 */
@@ -2080,66 +2135,7 @@
 
 	'use strict';
 
-	Object.defineProperty(exports, "__esModule", {
-		value: true
-	});
-
 	var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj; };
-
-	exports.default = function (to, from) {
-		bmoor.iterate(from, function (val, key) {
-			override(key, to, val);
-		});
-	};
-
-	var bmoor = __webpack_require__(4);
-
-	function override(key, target, action) {
-		var old = target[key];
-
-		if (old === undefined) {
-			target[key] = action;
-		} else {
-			if (bmoor.isFunction(action)) {
-				if (bmoor.isFunction(old)) {
-					target[key] = function () {
-						var backup = this.$old,
-						    rtn;
-
-						this.$old = old;
-
-						rtn = action.apply(this, arguments);
-
-						this.$old = backup;
-
-						return rtn;
-					};
-				} else {
-					console.log('attempting to decorate ' + key + ' an instance of ' + (typeof old === 'undefined' ? 'undefined' : _typeof(old)));
-				}
-			} else {
-				console.log('attempting to decorate with ' + key + ' and instance of ' + (typeof action === 'undefined' ? 'undefined' : _typeof(action)));
-			}
-		}
-	}
-
-/***/ },
-/* 12 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-	Object.defineProperty(exports, "__esModule", {
-		value: true
-	});
-
-	var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj; };
-
-	exports.default = function (to, from, ctx) {
-		bmoor.iterate(from, function (val, key) {
-			override(key, to, val, ctx);
-		});
-	};
 
 	var bmoor = __webpack_require__(4);
 
@@ -2183,20 +2179,63 @@
 		}
 	}
 
+	module.exports = function (to, from, ctx) {
+		bmoor.iterate(from, function (val, key) {
+			override(key, to, val, ctx);
+		});
+	};
+
+/***/ },
+/* 12 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+	var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol ? "symbol" : typeof obj; };
+
+	var bmoor = __webpack_require__(4);
+
+	function override(key, target, action) {
+		var old = target[key];
+
+		if (old === undefined) {
+			target[key] = action;
+		} else {
+			if (bmoor.isFunction(action)) {
+				if (bmoor.isFunction(old)) {
+					target[key] = function () {
+						var backup = this.$old,
+						    rtn;
+
+						this.$old = old;
+
+						rtn = action.apply(this, arguments);
+
+						this.$old = backup;
+
+						return rtn;
+					};
+				} else {
+					console.log('attempting to decorate ' + key + ' an instance of ' + (typeof old === 'undefined' ? 'undefined' : _typeof(old)));
+				}
+			} else {
+				console.log('attempting to decorate with ' + key + ' and instance of ' + (typeof action === 'undefined' ? 'undefined' : _typeof(action)));
+			}
+		}
+	}
+
+	module.exports = function (to, from) {
+		bmoor.iterate(from, function (val, key) {
+			override(key, to, val);
+		});
+	};
+
 /***/ },
 /* 13 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	Object.defineProperty(exports, "__esModule", {
-		value: true
-	});
-	exports.trim = trim;
-	exports.ltrim = ltrim;
-	exports.rtrim = rtrim;
-	exports.getCommands = getCommands;
-	exports.getFormatter = getFormatter;
 	var bmoor = __webpack_require__(4);
 
 	function trim(str, chr) {
@@ -2345,7 +2384,16 @@
 			};
 		}
 	}
+
 	getFormatter.filters = filters;
+
+	module.exports = {
+		trim: trim,
+		ltrim: ltrim,
+		rtrim: rtrim,
+		getCommands: getCommands,
+		getFormatter: getFormatter
+	};
 
 /***/ },
 /* 14 */
@@ -2353,17 +2401,87 @@
 
 	"use strict";
 
-	Object.defineProperty(exports, "__esModule", {
-		value: true
-	});
-	exports.always = always;
 	function always(promise, func) {
 		promise.then(func, func);
 		return promise;
 	}
 
+	module.exports = {
+		always: always
+	};
+
 /***/ },
 /* 15 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+	module.exports = {
+		Eventing: __webpack_require__(16)
+	};
+
+/***/ },
+/* 16 */
+/***/ function(module, exports) {
+
+	"use strict";
+
+	module.exports = {
+		on: function on(event, cb) {
+			var dis = this;
+
+			if (!this._$listeners) {
+				this._$listeners = {};
+			}
+
+			if (!this._$listeners[event]) {
+				this._$listeners[event] = [];
+			}
+
+			this._$listeners[event].push(cb);
+
+			return function clear$on() {
+				dis._$listeners[event].splice(dis._$listeners[event].indexOf(cb), 1);
+			};
+		},
+		subscribe: function subscribe(subscriptions) {
+			var dis = this,
+			    kills = [],
+			    events = Object.keys(subscriptions);
+
+			events.forEach(function (event) {
+				var action = subscriptions[event];
+
+				kills.push(dis.on(event, action));
+			});
+
+			return function killAll() {
+				kills.forEach(function (kill) {
+					kill();
+				});
+			};
+		},
+		trigger: function trigger(event) {
+			var listeners,
+			    i,
+			    c,
+			    args = Array.prototype.slice.call(arguments, 1);
+
+			if (this._$listeners) {
+				listeners = this._$listeners[event];
+
+				if (listeners) {
+					listeners = listeners.slice(0);
+					for (i = 0, c = listeners.length; i < c; i++) {
+						listeners[i].apply(this, args);
+					}
+				}
+			}
+		}
+	};
+
+/***/ },
+/* 17 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -2373,15 +2491,14 @@
 	});
 	exports.sleep = sleep;
 	exports.run = run;
-	exports.hook = hook;
 	var bmoor = __webpack_require__(3),
-	    Promise = __webpack_require__(16).Promise;
+	    Promise = __webpack_require__(18).Promise;
 
 	// factory accepts cmd, args, config
 	var event = exports.event = {
-		factory: function factory(cmd, args) {
-			var element = args[0] || cmd.element,
-			    eventType = args[1] || cmd.eventType;
+		factory: function factory(operation) {
+			var element = operation.getArg(0),
+			    eventType = operation.getArg(1);
 
 			return function (datum) {
 				bmoor.dom.triggerEvent(datum[element], eventType);
@@ -2390,9 +2507,9 @@
 	};
 
 	var addClass = exports.addClass = {
-		factory: function factory(cmd, args) {
-			var element = args[0] || cmd.element,
-			    className = args[1] || cmd.className;
+		factory: function factory(operation) {
+			var element = operation.getArg(0),
+			    className = operation.getArg(1);
 
 			return function (datum) {
 				className.split(' ').forEach(function (className) {
@@ -2403,9 +2520,9 @@
 	};
 
 	var removeClass = exports.removeClass = {
-		factory: function factory(cmd, args) {
-			var element = args[0] || cmd.element,
-			    className = args[1] || cmd.className;
+		factory: function factory(operation) {
+			var element = operation.getArg(0),
+			    className = operation.getArg(1);
 
 			return function (datum) {
 				className.split(' ').forEach(function (className) {
@@ -2416,19 +2533,57 @@
 	};
 
 	var navigate = exports.navigate = {
-		factory: function factory(cmd, args) {
-			var formatter = bmoor.string.getFormatter(args[0] || cmd.hash);
+		factory: function factory(operation) {
+			var formatter = bmoor.string.getFormatter(operation.getArg(0));
 			return function (datum) {
 				window.location.hash = formatter(datum);
 			};
 		}
 	};
 
+	var focus = exports.focus = {
+		factory: function factory(operation) {
+			var focus = operation.getArg(0),
+			    target = operation.getArg(1);
+
+			return function (datum) {
+				bmoor.dom.centerOn(datum[target], datum[focus]);
+			};
+		}
+	};
+
+	var orbit = exports.orbit = {
+		factory: function factory(operation) {
+			var focus = operation.getArg(0),
+			    target = operation.getArg(1),
+			    offset = operation.getArg(2);
+
+			if (offset) {
+				offset = parseInt(offset, 10);
+			}
+
+			return function (datum) {
+				bmoor.dom.showOn(datum[target], datum[focus]);
+			};
+		}
+	};
+
+	var write = exports.write = {
+		factory: function factory(operation) {
+			var target = operation.getArg(0),
+			    content = operation.getArg(1);
+
+			return function (datum) {
+				datum[target].innerHTML = datum[content];
+			};
+		}
+	};
+
 	var log = exports.log = {
-		factory: function factory(cmd, args) {
+		factory: function factory(operation) {
 			var fn,
-			    label = args[0] || cmd.label,
-			    format = args[1] || cmd.format;
+			    label = operation.getArg(0),
+			    format = operation.getArg(1);
 
 			if (format) {
 				fn = bmoor.string.getFormatter(format);
@@ -2451,35 +2606,25 @@
 		bulk: true
 	};
 
-	function sleep(cmd, args) {
+	function sleep(operation) {
+		var time = parseInt(operation.getArg(0), 10);
 		return function () {
 			return new Promise(function (resolve) {
 				setTimeout(function () {
 					resolve();
-				}, parseInt(args[0], 10));
+				}, time);
 			});
 		};
 	}
 	sleep.bulk = true;
 
-	function run(cmd, args) {
-		var exec = bmoor.makeExec(args[0] || cmd.method),
-		    subs = args.slice(1);
-		return function (datum) {
-			var res = exec(datum, subs);
+	function run(operation) {
+		var cmd = operation.getNextArg(),
+		    exec = bmoor.makeExec(cmd),
+		    ops = operation.getJson() || [];
 
-			if (res && res.then) {
-				return res;
-			} else {
-				return Promise.resolve();
-			}
-		};
-	}
-
-	function hook(cmd, args, config) {
-		var method = args[0] || cmd.method;
 		return function (datum) {
-			var res = config[method](datum);
+			var res = exec(datum, ops);
 
 			if (res && res.then) {
 				return res;
@@ -2490,7 +2635,7 @@
 	}
 
 /***/ },
-/* 16 */
+/* 18 */
 /***/ function(module, exports, __webpack_require__) {
 
 	var require;var __WEBPACK_AMD_DEFINE_RESULT__;/* WEBPACK VAR INJECTION */(function(process, global, module) {'use strict';
@@ -2502,7 +2647,7 @@
 	 * @copyright Copyright (c) 2014 Yehuda Katz, Tom Dale, Stefan Penner and contributors (Conversion to ES6 API by Jake Archibald)
 	 * @license   Licensed under MIT license
 	 *            See https://raw.githubusercontent.com/jakearchibald/es6-promise/master/LICENSE
-	 * @version   3.1.2
+	 * @version   3.2.1
 	 */
 
 	(function () {
@@ -2561,7 +2706,7 @@
 	  var lib$es6$promise$asap$$browserWindow = typeof window !== 'undefined' ? window : undefined;
 	  var lib$es6$promise$asap$$browserGlobal = lib$es6$promise$asap$$browserWindow || {};
 	  var lib$es6$promise$asap$$BrowserMutationObserver = lib$es6$promise$asap$$browserGlobal.MutationObserver || lib$es6$promise$asap$$browserGlobal.WebKitMutationObserver;
-	  var lib$es6$promise$asap$$isNode = typeof process !== 'undefined' && {}.toString.call(process) === '[object process]';
+	  var lib$es6$promise$asap$$isNode = typeof self === 'undefined' && typeof process !== 'undefined' && {}.toString.call(process) === '[object process]';
 
 	  // test for web worker but not in IE10
 	  var lib$es6$promise$asap$$isWorker = typeof Uint8ClampedArray !== 'undefined' && typeof importScripts !== 'undefined' && typeof MessageChannel !== 'undefined';
@@ -2626,7 +2771,7 @@
 	  function lib$es6$promise$asap$$attemptVertx() {
 	    try {
 	      var r = require;
-	      var vertx = __webpack_require__(19);
+	      var vertx = __webpack_require__(21);
 	      lib$es6$promise$asap$$vertxNext = vertx.runOnLoop || vertx.runOnContext;
 	      return lib$es6$promise$asap$$useVertxTimer();
 	    } catch (e) {
@@ -2649,19 +2794,19 @@
 	  }
 	  function lib$es6$promise$then$$then(onFulfillment, onRejection) {
 	    var parent = this;
-	    var state = parent._state;
-
-	    if (state === lib$es6$promise$$internal$$FULFILLED && !onFulfillment || state === lib$es6$promise$$internal$$REJECTED && !onRejection) {
-	      return this;
-	    }
 
 	    var child = new this.constructor(lib$es6$promise$$internal$$noop);
-	    var result = parent._result;
+
+	    if (child[lib$es6$promise$$internal$$PROMISE_ID] === undefined) {
+	      lib$es6$promise$$internal$$makePromise(child);
+	    }
+
+	    var state = parent._state;
 
 	    if (state) {
 	      var callback = arguments[state - 1];
 	      lib$es6$promise$asap$$asap(function () {
-	        lib$es6$promise$$internal$$invokeCallback(state, child, callback, result);
+	        lib$es6$promise$$internal$$invokeCallback(state, child, callback, parent._result);
 	      });
 	    } else {
 	      lib$es6$promise$$internal$$subscribe(parent, child, onFulfillment, onRejection);
@@ -2683,6 +2828,7 @@
 	    return promise;
 	  }
 	  var lib$es6$promise$promise$resolve$$default = lib$es6$promise$promise$resolve$$resolve;
+	  var lib$es6$promise$$internal$$PROMISE_ID = Math.random().toString(36).substring(16);
 
 	  function lib$es6$promise$$internal$$noop() {}
 
@@ -2925,6 +3071,18 @@
 	    }
 	  }
 
+	  var lib$es6$promise$$internal$$id = 0;
+	  function lib$es6$promise$$internal$$nextId() {
+	    return lib$es6$promise$$internal$$id++;
+	  }
+
+	  function lib$es6$promise$$internal$$makePromise(promise) {
+	    promise[lib$es6$promise$$internal$$PROMISE_ID] = lib$es6$promise$$internal$$id++;
+	    promise._state = undefined;
+	    promise._result = undefined;
+	    promise._subscribers = [];
+	  }
+
 	  function lib$es6$promise$promise$all$$all(entries) {
 	    return new lib$es6$promise$enumerator$$default(this, entries).promise;
 	  }
@@ -2933,28 +3091,18 @@
 	    /*jshint validthis:true */
 	    var Constructor = this;
 
-	    var promise = new Constructor(lib$es6$promise$$internal$$noop);
-
 	    if (!lib$es6$promise$utils$$isArray(entries)) {
-	      lib$es6$promise$$internal$$reject(promise, new TypeError('You must pass an array to race.'));
-	      return promise;
+	      return new Constructor(function (resolve, reject) {
+	        reject(new TypeError('You must pass an array to race.'));
+	      });
+	    } else {
+	      return new Constructor(function (resolve, reject) {
+	        var length = entries.length;
+	        for (var i = 0; i < length; i++) {
+	          Constructor.resolve(entries[i]).then(resolve, reject);
+	        }
+	      });
 	    }
-
-	    var length = entries.length;
-
-	    function onFulfillment(value) {
-	      lib$es6$promise$$internal$$resolve(promise, value);
-	    }
-
-	    function onRejection(reason) {
-	      lib$es6$promise$$internal$$reject(promise, reason);
-	    }
-
-	    for (var i = 0; promise._state === lib$es6$promise$$internal$$PENDING && i < length; i++) {
-	      lib$es6$promise$$internal$$subscribe(Constructor.resolve(entries[i]), undefined, onFulfillment, onRejection);
-	    }
-
-	    return promise;
 	  }
 	  var lib$es6$promise$promise$race$$default = lib$es6$promise$promise$race$$race;
 	  function lib$es6$promise$promise$reject$$reject(reason) {
@@ -2965,8 +3113,6 @@
 	    return promise;
 	  }
 	  var lib$es6$promise$promise$reject$$default = lib$es6$promise$promise$reject$$reject;
-
-	  var lib$es6$promise$promise$$counter = 0;
 
 	  function lib$es6$promise$promise$$needsResolver() {
 	    throw new TypeError('You must pass a resolver function as the first argument to the promise constructor');
@@ -3061,9 +3207,8 @@
 	    @constructor
 	  */
 	  function lib$es6$promise$promise$$Promise(resolver) {
-	    this._id = lib$es6$promise$promise$$counter++;
-	    this._state = undefined;
-	    this._result = undefined;
+	    this[lib$es6$promise$$internal$$PROMISE_ID] = lib$es6$promise$$internal$$nextId();
+	    this._result = this._state = undefined;
 	    this._subscribers = [];
 
 	    if (lib$es6$promise$$internal$$noop !== resolver) {
@@ -3277,7 +3422,11 @@
 	    this._instanceConstructor = Constructor;
 	    this.promise = new Constructor(lib$es6$promise$$internal$$noop);
 
-	    if (Array.isArray(input)) {
+	    if (!this.promise[lib$es6$promise$$internal$$PROMISE_ID]) {
+	      lib$es6$promise$$internal$$makePromise(this.promise);
+	    }
+
+	    if (lib$es6$promise$utils$$isArray(input)) {
 	      this._input = input;
 	      this.length = input.length;
 	      this._remaining = input.length;
@@ -3294,13 +3443,13 @@
 	        }
 	      }
 	    } else {
-	      lib$es6$promise$$internal$$reject(this.promise, this._validationError());
+	      lib$es6$promise$$internal$$reject(this.promise, lib$es6$promise$enumerator$$validationError());
 	    }
 	  }
 
-	  lib$es6$promise$enumerator$$Enumerator.prototype._validationError = function () {
+	  function lib$es6$promise$enumerator$$validationError() {
 	    return new Error('Array Methods must be provided an Array');
-	  };
+	  }
 
 	  lib$es6$promise$enumerator$$Enumerator.prototype._enumerate = function () {
 	    var length = this.length;
@@ -3395,7 +3544,7 @@
 	  };
 
 	  /* global define:true module:true window: true */
-	  if ("function" === 'function' && __webpack_require__(20)['amd']) {
+	  if ("function" === 'function' && __webpack_require__(22)['amd']) {
 	    !(__WEBPACK_AMD_DEFINE_RESULT__ = function () {
 	      return lib$es6$promise$umd$$ES6Promise;
 	    }.call(exports, __webpack_require__, exports, module), __WEBPACK_AMD_DEFINE_RESULT__ !== undefined && (module.exports = __WEBPACK_AMD_DEFINE_RESULT__));
@@ -3407,10 +3556,10 @@
 
 	  lib$es6$promise$polyfill$$default();
 	}).call(undefined);
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(17), (function() { return this; }()), __webpack_require__(18)(module)))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(19), (function() { return this; }()), __webpack_require__(20)(module)))
 
 /***/ },
-/* 17 */
+/* 19 */
 /***/ function(module, exports) {
 
 	'use strict';
@@ -3418,12 +3567,40 @@
 	// shim for using process in browser
 
 	var process = module.exports = {};
+
+	// cached from whatever global is present so that test runners that stub it
+	// don't break things.  But we need to wrap it in a try catch in case it is
+	// wrapped in strict mode code which doesn't define any globals.  It's inside a
+	// function because try/catches deoptimize in certain engines.
+
+	var cachedSetTimeout;
+	var cachedClearTimeout;
+
+	(function () {
+	    try {
+	        cachedSetTimeout = setTimeout;
+	    } catch (e) {
+	        cachedSetTimeout = function cachedSetTimeout() {
+	            throw new Error('setTimeout is not defined');
+	        };
+	    }
+	    try {
+	        cachedClearTimeout = clearTimeout;
+	    } catch (e) {
+	        cachedClearTimeout = function cachedClearTimeout() {
+	            throw new Error('clearTimeout is not defined');
+	        };
+	    }
+	})();
 	var queue = [];
 	var draining = false;
 	var currentQueue;
 	var queueIndex = -1;
 
 	function cleanUpNextTick() {
+	    if (!draining || !currentQueue) {
+	        return;
+	    }
 	    draining = false;
 	    if (currentQueue.length) {
 	        queue = currentQueue.concat(queue);
@@ -3439,7 +3616,7 @@
 	    if (draining) {
 	        return;
 	    }
-	    var timeout = setTimeout(cleanUpNextTick);
+	    var timeout = cachedSetTimeout(cleanUpNextTick);
 	    draining = true;
 
 	    var len = queue.length;
@@ -3456,7 +3633,7 @@
 	    }
 	    currentQueue = null;
 	    draining = false;
-	    clearTimeout(timeout);
+	    cachedClearTimeout(timeout);
 	}
 
 	process.nextTick = function (fun) {
@@ -3468,7 +3645,7 @@
 	    }
 	    queue.push(new Item(fun, args));
 	    if (queue.length === 1 && !draining) {
-	        setTimeout(drainQueue, 0);
+	        cachedSetTimeout(drainQueue, 0);
 	    }
 	};
 
@@ -3512,7 +3689,7 @@
 	};
 
 /***/ },
-/* 18 */
+/* 20 */
 /***/ function(module, exports) {
 
 	"use strict";
@@ -3529,20 +3706,20 @@
 	};
 
 /***/ },
-/* 19 */
+/* 21 */
 /***/ function(module, exports) {
 
 	/* (ignored) */
 
 /***/ },
-/* 20 */
+/* 22 */
 /***/ function(module, exports) {
 
 	module.exports = function() { throw new Error("define cannot be used indirect"); };
 
 
 /***/ },
-/* 21 */
+/* 23 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -3551,23 +3728,16 @@
 		value: true
 	});
 	exports.insert = insert;
-	exports.conf = conf;
-	var Promise = __webpack_require__(16).Promise;
+	var Promise = __webpack_require__(18).Promise;
 
-	function insert(cmd, args) {
+	function insert(operation, datum) {
 		return new Promise(function (resolve) {
-			resolve(cmd[args[0]]);
-		});
-	}
-
-	function conf(cmd, args, datum, config) {
-		return new Promise(function (resolve) {
-			resolve(config[args[0]]);
+			resolve(datum[operation.getArg(0)]);
 		});
 	}
 
 /***/ },
-/* 22 */
+/* 24 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
@@ -3581,16 +3751,19 @@
 	exports.permutate = permutate;
 	var bmoor = __webpack_require__(3);
 
-	function filter(cmd, args, content) {
-		var fn = bmoor.makeGetter(args[0] || cmd.field);
+	// these are performed to the whole data set
+	function filter(operation, content) {
+		var get = bmoor.makeGetter(operation.getArg(0));
 
 		return content.filter(function (datum) {
-			return fn(datum);
+			var fn = get(datum);
+
+			return bmoor.isFunction(fn) ? fn(datum) : fn;
 		});
 	}
 
-	function sort(cmd, args, content) {
-		var fn = bmoor.makeGetter(args[0] || cmd.field);
+	function sort(operation, content) {
+		var fn = bmoor.makeGetter(operation.getArg(0));
 
 		return content.sort(function (a, b) {
 			a = fn(a);
@@ -3606,9 +3779,9 @@
 		});
 	}
 
-	function limit(cmd, args, content) {
-		var limit = parseInt(args[0] || cmd.limit, 10),
-		    start = parseInt(args[1] || cmd.start, 10);
+	function limit(operation, content) {
+		var limit = parseInt(operation.getArg(0), 10),
+		    start = parseInt(operation.getArg(1), 10);
 
 		if (start) {
 			return content.slice(start, start + limit);
@@ -3617,12 +3790,13 @@
 		}
 	}
 
-	function permutate(cmd, args, content) {
+	function permutate(operation, content) {
 		var fns = {},
-		    res = [];
+		    res = [],
+		    mappings = operation.getJson();
 
-		Object.keys(cmd.mappings).forEach(function (key) {
-			fns[key] = bmoor.makeLoader(cmd.mappings[key]);
+		Object.keys(mappings).forEach(function (key) {
+			fns[key] = bmoor.makeLoader(mappings[key]);
 		});
 
 		bmoor.loop(content, function (datum) {
@@ -3657,6 +3831,92 @@
 
 		return res;
 	}
+
+/***/ },
+/* 25 */
+/***/ function(module, exports) {
+
+	'use strict';
+
+	var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+	var Operation = function () {
+		function Operation(args) {
+			_classCallCheck(this, Operation);
+
+			this.rawArgs = this.raw = args;
+			this.op = this.getNextArg();
+		}
+
+		_createClass(Operation, [{
+			key: 'getOp',
+			value: function getOp() {
+				return this.op;
+			}
+		}, {
+			key: 'getNextArg',
+			value: function getNextArg() {
+				var op,
+				    pos = this.rawArgs.indexOf(':');
+
+				if (pos !== -1) {
+					op = this.rawArgs.substr(0, pos);
+					this.rawArgs = this.rawArgs.substr(pos + 1);
+				} else {
+					op = this.rawArgs;
+					this.rawArgs = '';
+				}
+
+				return op;
+			}
+		}, {
+			key: 'sub',
+			value: function sub(op, pos) {
+				var child = new Operation(null);
+				child.op = op;
+
+				child.rawArgs = this.rawArgs;
+				if (this.args) {
+					child.args = this.args.slice(pos);
+				}
+
+				return child;
+			}
+		}, {
+			key: 'getArg',
+			value: function getArg(pos) {
+				if (!this.args) {
+					this.args = this.rawArgs.split(':');
+				}
+
+				return this.args[pos];
+			}
+		}, {
+			key: 'getJson',
+			value: function getJson() {
+				if (this.json === undefined) {
+					if (this.rawArgs) {
+						try {
+							this.json = JSON.parse(this.rawArgs);
+						} catch (ex) {
+							console.log('json parse', this.rawArgs);
+							this.json = null;
+						}
+					} else {
+						this.json = null;
+					}
+				}
+
+				return this.json;
+			}
+		}]);
+
+		return Operation;
+	}();
+
+	module.exports = Operation;
 
 /***/ }
 /******/ ]);

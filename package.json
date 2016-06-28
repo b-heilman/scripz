@@ -1,6 +1,6 @@
 {
   "name": "scripz",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "descritpion": "A way to run json encoded scripts",
   "license": "MIT",
   "repository": {
@@ -12,7 +12,7 @@
     "build": "gulp build"
   },
   "dependencies": {
-    "bmoor":"^0.3.3",
+    "bmoor":"0.3.11",
     "es6-promise": "^3.1.2"
   },
   "devDependencies": {

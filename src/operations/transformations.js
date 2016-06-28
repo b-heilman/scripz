@@ -1,15 +1,18 @@
 var bmoor = require('bmoor');
 
-export function filter( cmd, args, content ){
-	var fn = bmoor.makeGetter(args[0]||cmd.field);
+// these are performed to the whole data set
+export function filter( operation, content ){
+	var get = bmoor.makeGetter( operation.getArg(0) );
 
 	return content.filter(function( datum ){
-		return fn(datum);
+		var fn = get(datum);
+
+		return bmoor.isFunction(fn) ? fn(datum) : fn;
 	});
 }
 
-export function sort( cmd, args, content ){
-	var fn = bmoor.makeGetter(args[0]||cmd.field);
+export function sort( operation, content ){
+	var fn = bmoor.makeGetter( operation.getArg(0) );
 
 	return content.sort(function( a, b ){
 		a = fn(a);
@@ -25,9 +28,9 @@ export function sort( cmd, args, content ){
 	});
 }
 
-export function limit( cmd, args, content ){
-	var limit = parseInt(args[0]||cmd.limit,10),
-		start = parseInt(args[1]||cmd.start,10);
+export function limit( operation, content ){
+	var limit = parseInt(operation.getArg(0),10),
+		start = parseInt(operation.getArg(1),10);
 
 	if ( start ){
 		return content.slice( start, start+limit );
@@ -36,12 +39,13 @@ export function limit( cmd, args, content ){
 	}
 }
 
-export function permutate( cmd, args, content ){
+export function permutate( operation, content ){
 	var fns = {},
-		res = [];
+		res = [],
+		mappings = operation.getJson();
 
-	Object.keys(cmd.mappings).forEach(function( key ){
-		fns[key] = bmoor.makeLoader( cmd.mappings[key] );
+	Object.keys(mappings).forEach(function( key ){
+		fns[key] = bmoor.makeLoader( mappings[key] );
 	});
 
 	bmoor.loop(content,function( datum ){

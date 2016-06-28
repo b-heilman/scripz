@@ -6,7 +6,7 @@ describe('scripz - load - select', function(){
 		
 		sc.eval([
 			{
-				edit:'select:element', selector:'#hello'
+				edit:'select:element:#hello'
 			}
 		]).then(
 			function( matches ){
@@ -29,10 +29,11 @@ describe('scripz - load - select', function(){
 		sc.eval([
 			{
 				fetch: 'insert:test:content',
-				content: ['hello'],
 				edit:'select:element:#{{test}}'
 			}
-		]).then(
+		],{
+			content: ['hello']
+		}).then(
 			function( matches ){
 				expect( matches.length ).toBe( 1 );
 				expect( matches[0].element ).toBeDefined();

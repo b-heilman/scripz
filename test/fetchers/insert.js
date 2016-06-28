@@ -3,8 +3,10 @@ describe('scripz - fetchers - insert', function(){
 		var sc = new Scripz();
 
 		sc.eval([
-			{ fetch: 'insert:test:content', content: [0,1,2,3] }
-		]).then(
+			{ fetch: 'insert:test:content' }
+		],{
+			content: [0,1,2,3]
+		}).then(
 			function( buffer ){
 				expect( buffer ).toEqual( [{test:0},{test:1},{test:2},{test:3}] );
 				done();
